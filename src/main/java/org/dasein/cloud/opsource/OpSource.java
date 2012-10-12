@@ -387,7 +387,7 @@ public class OpSource extends AbstractCloud {
    }
    
    public String getBasicUrl() throws CloudException{
-	   String endpoint = this.getContext().getEndpoint();
+	   String endpoint = getEndpoint();
 	   if(endpoint == null){
 		  throw new CloudException("Endpoint is null !!!");
 	   }
