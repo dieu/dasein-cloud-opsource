@@ -230,9 +230,10 @@ public class Network implements VLANSupport {
             }
             else if( name.equalsIgnoreCase("ns4:location") && value != null ) {
                 network.setProviderRegionId(value);
-                if(! value.equals(provider.getContext().getRegionId())){
-                	return null;                	
-                }
+                //TODO dasein
+//                if(! value.equals(provider.getContext().getRegionId())){
+//                	return null;
+//                }
             }
             else if( name.equalsIgnoreCase("ns4:privateNet") && value != null ) {
             	network.setGateway(value);            	

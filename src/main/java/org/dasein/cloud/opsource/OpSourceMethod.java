@@ -46,6 +46,7 @@ import org.apache.http.client.methods.HttpPut;
 import org.apache.http.client.methods.HttpTrace;
 import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.client.params.AuthPolicy;
+import org.apache.http.client.params.ClientPNames;
 import org.apache.http.entity.AbstractHttpEntity;
 import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.impl.client.DefaultHttpClient;
@@ -133,6 +134,7 @@ public class OpSourceMethod {
 				throw new CloudException(e1);				
 			}
 	        final String host = url.getHost();
+            //TODO dasein
 	        final int urlPort = url.getPort()==-1?url.getDefaultPort():url.getPort();
 	        final String urlStr = url.toString();
 	      	
@@ -141,14 +143,15 @@ public class OpSourceMethod {
 	        /**  HTTP Authentication */
 	        String uid = new String(provider.getContext().getAccessPublic());
 	        String pwd = new String(provider.getContext().getAccessPrivate());
-	        
-	        /** Type of authentication */
-	        List<String> authPrefs = new ArrayList<String>(2);	       
-	        authPrefs.add(AuthPolicy.BASIC);
- 
-	        httpclient.getParams().setParameter("http.auth.scheme-pref", authPrefs);
+
+            List<String> authPrefs = new ArrayList<String>(2);
+            authPrefs.add(AuthPolicy.BASIC);
+
+            httpclient.getParams().setIntParameter(ClientPNames.MAX_REDIRECTS, 10);
+            httpclient.getParams().setParameter("http.auth.target-scheme-pref", authPrefs);
+
 	        httpclient.getCredentialsProvider().setCredentials(
-                    new AuthScope(host, urlPort, null),
+                    new AuthScope(host, urlPort, AuthScope.ANY_REALM),
                     new UsernamePasswordCredentials(uid, pwd));
 	        
 	        if( wire.isDebugEnabled() ) {
@@ -227,9 +230,9 @@ public class OpSourceMethod {
                 if( entity == null ) {
                     parseError(status, "Empty entity");
                 }
-        		if( status == HttpStatus.SC_OK ) {                   
-                    InputStream input = null;                    
-                    try {                    	
+        		if( status == HttpStatus.SC_OK || status == HttpStatus.SC_BAD_REQUEST) {
+                    InputStream input = null;
+                    try {
                     	input = entity.getContent();
                     	if(input != null){
                     		return DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input);
@@ -240,19 +243,18 @@ public class OpSourceMethod {
                         if( logger.isTraceEnabled() ) {
                             e.printStackTrace();
                         }
-                        throw new CloudException(e);                    
+                        throw new CloudException(e);
                     }
                     catch( SAXException e ) {
                         throw new CloudException(e);
-                    }                    
+                    }
                     catch( ParserConfigurationException e ) {
                         throw new InternalException(e);
                     }
-        		}
-        		else { 
-        			
+        		} else {
+
                     String resultXML = null;
-                    try {                    	
+                    try {
                     	resultXML = EntityUtils.toString(entity);
                     }
                     catch( IOException e ) {
@@ -260,9 +262,9 @@ public class OpSourceMethod {
                         if( logger.isTraceEnabled() ) {
                             e.printStackTrace();
                         }
-                        throw new CloudException(e);                    
+                        throw new CloudException(e);
                     }
-                    parseError(status, resultXML);  
+                    parseError(status, resultXML);
         		}
     		} catch (ParseException e) {
 				e.printStackTrace();
@@ -335,7 +337,11 @@ public class OpSourceMethod {
             
         if( wire.isDebugEnabled() ) {
         	wire.debug(provider.convertDomToString(doc));
-        }        
+        }
+
+        if (doc == null) {
+            return null;
+        }
 	        
     	NodeList blocks = doc.getElementsByTagName(resultTag);
     	if(blocks != null){
@@ -399,7 +405,7 @@ public class OpSourceMethod {
                 
         if( wire.isDebugEnabled() ) {
         	wire.debug(provider.convertDomToString(doc));
-        } 
+        }
          	        
     	NodeList blocks = doc.getElementsByTagName(resultTag);
     	if(blocks != null){

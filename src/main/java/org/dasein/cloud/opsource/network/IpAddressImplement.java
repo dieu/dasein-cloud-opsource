@@ -465,7 +465,7 @@ config
     public void stopForward(String ruleId) throws InternalException, CloudException {
     	throw new OperationNotSupportedException("Not support for stopForwarding for OpSource");
     }
-    
+
     private NatRule toNatRule( Node node){
     	if(node == null){
     		return null;

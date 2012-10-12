@@ -25,6 +25,8 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -59,6 +61,8 @@ import org.w3c.dom.NodeList;
 public class OpSource extends AbstractCloud {
 	
 	public OpSource(){}
+
+    static private final Lock lock = new ReentrantLock();
 	
 	/** Request URL path */
 	static public final String IMAGE_BASE_PATH             		= "image";
@@ -242,26 +246,33 @@ public class OpSource extends AbstractCloud {
 		
 	}
 	public String getDefaultVlanId() throws CloudException, InternalException{
-		if(defaultVlanId != null){
-			return defaultVlanId;			
-		}
-		VLANSupport vlanSupport = getNetworkServices().getVlanSupport();
-		ArrayList<VLAN> lists = (ArrayList<VLAN>) vlanSupport.listVlans();
-		for(VLAN vlan: lists){
-			String vlanRegionId = vlan.getProviderRegionId();
-			if(getDefaultRegionId()!=null && getDefaultRegionId().equals(vlanRegionId)){
-				defaultVlanId = vlan.getProviderVlanId();
-				break;
-			}
-		}
-		
-		if(defaultVlanId == null){
-        	//Create a default VLan
-			VLAN vlan = this.getNetworkServices().getVlanSupport().createVlan("defaultVlan", "This is defaultValn Create by enstratus console", null, null, null, null);
-			defaultVlanId = vlan.getProviderVlanId();
-		}
-		return defaultVlanId;
-	}
+        synchronized (lock) {
+            if (defaultVlanId != null) {
+                try {
+                    getNetworkServices().getVlanSupport().getVlan(defaultVlanId);
+                    return defaultVlanId;
+                } catch (Exception ignored) {
+                    defaultVlanId = null;
+                }
+            }
+            VLANSupport vlanSupport = getNetworkServices().getVlanSupport();
+            ArrayList<VLAN> lists = (ArrayList<VLAN>) vlanSupport.listVlans();
+            for (VLAN vlan : lists) {
+                String vlanRegionId = vlan.getProviderRegionId();
+                if (getDefaultRegionId() != null && getDefaultRegionId().equals(vlanRegionId)) {
+                    defaultVlanId = vlan.getProviderVlanId();
+                    break;
+                }
+            }
+
+            if (defaultVlanId == null) {
+                //Create a default VLan
+                VLAN vlan = vlanSupport.createVlan("defaultVlan", "Default Network", null, null, null, null);
+                defaultVlanId = vlan.getProviderVlanId();
+            }
+            return defaultVlanId;
+        }
+    }
 
 	public Map<String,String> getBasicRequestParameters(String contentType, String requestMethod, String requestBody){
 		HashMap<String,String> parameters = new HashMap<String,String>();
@@ -315,7 +326,7 @@ public class OpSource extends AbstractCloud {
             if(!(t.startsWith("http://") 
                     || t.startsWith("https://")
                     || t.matches("^[a-z]+://.*"))){
-            	endpoint = "http://" + endpoint;              
+            	endpoint = "https://" + endpoint;
             }
         }
         return endpoint;

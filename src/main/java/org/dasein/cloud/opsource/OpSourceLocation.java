@@ -35,6 +35,7 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
 public class OpSourceLocation implements DataCenterServices {
+    private static String DATA_CENTER_TAG = "ns7:datacenterWithLimits";
 	
 	private OpSource provider = null;
 	OpSourceLocation(OpSource provider) {
@@ -115,7 +116,7 @@ public class OpSourceLocation implements DataCenterServices {
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "GET",null));
     	
 		Document doc = method.invoke();
-		NodeList blocks = doc.getElementsByTagName("ns8:datacenterWithLimits");
+		NodeList blocks = doc.getElementsByTagName(DATA_CENTER_TAG);
 		if(blocks != null){
 			for(int i=0; i< blocks.getLength();i++){
 				Node item = blocks.item(i);
@@ -141,10 +142,10 @@ public class OpSourceLocation implements DataCenterServices {
 			Node item = data.item(i);
 			if(item.getNodeType() == Node.TEXT_NODE) continue;
 			
-			if( item.getNodeName().equals("ns8:location") ) {
+			if( item.getNodeName().equals("ns7:location") ) {
 				r.setProviderRegionId(item.getFirstChild().getNodeValue());
 			}
-			else if( item.getNodeName().equals("ns8:displayName") ) {
+			else if( item.getNodeName().equals("ns7:displayName") ) {
 				r.setName(item.getFirstChild().getNodeValue());
 			}
 		}	

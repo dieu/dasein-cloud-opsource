@@ -67,7 +67,7 @@ public class VirtualMachines implements VirtualMachineSupport {
 	static private final String Pending_Deployed_Server_Tag = "PendingDeployServer";
 	
 	int attemptForOperation = 30;
-	long waitTimeToAttempt = 30000L;
+	long waitTimeToAttempt = 60000L;
     
     private OpSource provider;
     
@@ -117,7 +117,7 @@ public class VirtualMachines implements VirtualMachineSupport {
     		OpSourceMethod method = new OpSourceMethod(provider, 
     			provider.buildUrl(START_VIRTUAL_MACHINE,true, parameters),
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "GET",null));
-    		return method.parseRequestResult("Booting vm",method.invoke(), "ns9:result", "ns9:resultDetail");
+    		return method.parseRequestResult("Booting vm",method.invoke(), "ns8:result", "ns8:resultDetail");
     	}finally{
     		if( logger.isTraceEnabled() ) {
             	logger.trace("EXIT: " + VirtualMachine.class.getName() + ".Start()");
@@ -139,7 +139,7 @@ public class VirtualMachines implements VirtualMachineSupport {
 	      	OpSourceMethod method = new OpSourceMethod(provider, 
 	      			provider.buildUrl(CLEAN_VIRTUAL_MACHINE,true, parameters),
 	      			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "GET",null));
-	        return method.parseRequestResult("Clean failed vm",method.invoke(),"ns9:result", "ns9:resultDetail");
+	        return method.parseRequestResult("Clean failed vm",method.invoke(),"ns8:result", "ns8:resultDetail");
 	   	}finally{
 			if( logger.isTraceEnabled() ) {
 	        	logger.trace("EXIT: " + VirtualMachine.class.getName() + ".cleanFailedVM()");
@@ -444,6 +444,10 @@ public class VirtualMachines implements VirtualMachineSupport {
 					/** Start VM*/				
 					start(server.getProviderVirtualMachineId());
 
+                    if(!server.getCurrentState().equals(VmState.RUNNING)){
+                        throw new CloudException("Virtual machine is not running");
+                    }
+
     				if(logger.isTraceEnabled()){
     		   			long end = System.currentTimeMillis();			
     		   			logger.info("Total boot time -> " + ((end-starttime)/1000));
@@ -536,7 +540,8 @@ public class VirtualMachines implements VirtualMachineSupport {
     	OpSourceMethod method = new OpSourceMethod(provider,
     			provider.buildUrl(null,true, parameters),
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "POST", provider.convertDomToString(doc)));
-    	return method.parseRequestResult("Deploying server",method.invoke(), "ns9:result", "ns9:resultDetail");
+        // TODO Fail deploy when don't match n8:result (past value n9:result)
+    	return method.parseRequestResult("Deploying server",method.invoke(), "ns8:result", "ns8:resultDetail");
      }
     
 
@@ -566,7 +571,7 @@ public class VirtualMachines implements VirtualMachineSupport {
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "GET",null));
     	
 		Document doc = method.invoke();
-		NodeList blocks = doc.getElementsByTagName("ns8:datacenterWithLimits");
+		NodeList blocks = doc.getElementsByTagName("ns7:datacenterWithLimits");
 		
 		if(blocks != null){
 			for(int i=0; i< blocks.getLength();i++){
@@ -743,7 +748,7 @@ public class VirtualMachines implements VirtualMachineSupport {
     	OpSourceMethod method = new OpSourceMethod(provider, 
     			provider.buildUrl(null,true, parameters),
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Modify, "POST", requestBody));
-      	return method.parseRequestResult("Modify vm",method.invoke(), "ns9:result", "ns9:resultDetail");
+      	return method.parseRequestResult("Modify vm",method.invoke(), "ns8:result", "ns8:resultDetail");
     }  
 
     @Override
@@ -935,7 +940,7 @@ public class VirtualMachines implements VirtualMachineSupport {
     	OpSourceMethod method = new OpSourceMethod(provider, 
     			provider.buildUrl(DESTROY_VIRTUAL_MACHINE,true, parameters),
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "GET",null));
-    	return method.requestResultCode("Terminating vm",method.invoke(),"ns9:resultCode"); 
+    	return method.requestResultCode("Terminating vm",method.invoke(),"ns8:resultCode");
    }
     
     private String translateZone(String zoneId) throws InternalException, CloudException {
@@ -1121,10 +1126,12 @@ public class VirtualMachines implements VirtualMachineSupport {
 	 		                
 	 		                if( osName.equalsIgnoreCase("displayName") && os.getChildNodes().getLength() > 0 ) {
 	 		                	osValue = os.getFirstChild().getNodeValue();
-	 		                }else if( osName.equalsIgnoreCase("type") && os.getChildNodes().getLength() > 0) {
-	 		                	osValue = os.getFirstChild().getNodeValue();
-	 		                	server.setPlatform(Platform.guess(osValue));			                       
+                                server.setPlatform(Platform.guess(osValue));
 	 		                }
+//                             else if( osName.equalsIgnoreCase("type") && os.getChildNodes().getLength() > 0) {
+//	 		                	osValue = os.getFirstChild().getNodeValue();
+//	 		                	server.setPlatform(Platform.guess(osValue));
+//	 		                }
 	 		                if( osValue != null && osValue.contains("64") ) {
 	 		                	bestArchitectureGuess = Architecture.I64;
 	 		                }
@@ -1268,6 +1275,15 @@ public class VirtualMachines implements VirtualMachineSupport {
         }*/
         
         server.setProduct(product);
+
+        // TODO dasein fix root user
+        if (server.getPlatform() == Platform.UBUNTU) {
+            server.setRootUser("ubuntu");
+        } else {
+            server.setRootUser("root");
+        }
+        server.setRootPassword(provider.getDefaultAdminPasswordForVM());
+
         return server;
     }
     
@@ -1287,16 +1303,16 @@ public class VirtualMachines implements VirtualMachineSupport {
 			
 			if(item.getNodeType() == Node.TEXT_NODE) continue;
 			
-			if( item.getNodeName().equals("ns8:location") ) {
+			if( item.getNodeName().equals("ns7:location") ) {
 				r.setProviderRegionId(item.getFirstChild().getNodeValue());
 			}
-			else if( item.getNodeName().equals("ns8:displayName") ) {
+			else if( item.getNodeName().equals("ns7:displayName") ) {
 				r.setName(item.getFirstChild().getNodeValue());
 			}
-			else if( item.getNodeName().equals("ns8:maxCpu") ) {
+			else if( item.getNodeName().equals("ns7:maxCpu") ) {
 				r.setMaxCPUNum(Integer.valueOf(item.getFirstChild().getNodeValue()));
 			}
-			else if( item.getNodeName().equals("ns8:maxRamMb") ) {
+			else if( item.getNodeName().equals("ns7:maxRamMb") ) {
 				r.setMaxMemInMB(Integer.valueOf(item.getFirstChild().getNodeValue()));
 			}
 		}	
