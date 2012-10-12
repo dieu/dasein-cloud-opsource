@@ -21,13 +21,21 @@ package org.dasein.cloud.opsource;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.StringWriter;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
+
 import org.apache.commons.httpclient.HttpClient;
 import org.apache.commons.httpclient.HttpException;
 import org.apache.commons.httpclient.HttpStatus;
@@ -46,7 +54,6 @@ import org.apache.http.client.methods.HttpPut;
 import org.apache.http.client.methods.HttpTrace;
 import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.client.params.AuthPolicy;
-import org.apache.http.client.params.ClientPNames;
 import org.apache.http.entity.AbstractHttpEntity;
 import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.impl.client.DefaultHttpClient;
@@ -66,8 +73,8 @@ import org.xml.sax.SAXException;
 public class OpSourceMethod {
 
 	private Map<String,String> parameters  = null;
-	private OpSource         provider    = null;
-	private String             endpoint         = null;
+	private OpSource           provider    = null;
+	private String             endpoint    = null;
 
 	
 	static public class ParsedError {
@@ -76,9 +83,9 @@ public class OpSourceMethod {
     }
 	
 	public OpSourceMethod(OpSource provider, String url, Map<String,String> parameters) throws InternalException {
-		this.endpoint = url;
+        this.endpoint = url;
 		this.parameters = parameters;
-		this.provider = provider;		
+        this.provider = provider;
 	}	
 
     protected AbstractHttpMessage getMethod(String httpMethod,String urlStr) {
@@ -134,7 +141,6 @@ public class OpSourceMethod {
 				throw new CloudException(e1);				
 			}
 	        final String host = url.getHost();
-            //TODO dasein
 	        final int urlPort = url.getPort()==-1?url.getDefaultPort():url.getPort();
 	        final String urlStr = url.toString();
 	      	
@@ -143,13 +149,12 @@ public class OpSourceMethod {
 	        /**  HTTP Authentication */
 	        String uid = new String(provider.getContext().getAccessPublic());
 	        String pwd = new String(provider.getContext().getAccessPrivate());
-
-            List<String> authPrefs = new ArrayList<String>(2);
-            authPrefs.add(AuthPolicy.BASIC);
-
-            httpclient.getParams().setIntParameter(ClientPNames.MAX_REDIRECTS, 10);
-            httpclient.getParams().setParameter("http.auth.target-scheme-pref", authPrefs);
-
+	        
+	        /** Type of authentication */
+	        List<String> authPrefs = new ArrayList<String>(2);	       
+	        authPrefs.add(AuthPolicy.BASIC);
+ 
+	        httpclient.getParams().setParameter("http.auth.scheme-pref", authPrefs);
 	        httpclient.getCredentialsProvider().setCredentials(
                     new AuthScope(host, urlPort, AuthScope.ANY_REALM),
                     new UsernamePasswordCredentials(uid, pwd));
@@ -178,7 +183,7 @@ public class OpSourceMethod {
 	            }                
             }           
 	        
-	        /** Now parse the response */
+	        /** Now parse the xml */
 	        try {
         		
     			HttpResponse httpResponse ;
@@ -186,10 +191,10 @@ public class OpSourceMethod {
                 if( wire.isDebugEnabled() ) {                   
                     for( org.apache.http.Header header : method.getAllHeaders()) {
                         wire.debug(header.getName() + ": " + header.getValue());
-                    }                    
+                    }
                 }
         		try {        			
-        		     /**  Now excute the request */
+        		     /**  Now execute the request */
                     httpResponse = httpclient.execute((HttpUriRequest) method);
                     status = httpResponse.getStatusLine().getStatusCode();                  
         		} 
@@ -214,7 +219,7 @@ public class OpSourceMethod {
                 
                 HttpEntity entity = httpResponse.getEntity();
                 if( wire.isDebugEnabled() ) {
-                    wire.debug("HTTP response status code ---------" + status);
+                    wire.debug("HTTP xml status code ---------" + status);
                     for( org.apache.http.Header h : headers ) {
                         if( h.getValue() != null ) {
                             wire.debug(h.getName() + ": " + h.getValue().trim());
@@ -230,44 +235,68 @@ public class OpSourceMethod {
                 if( entity == null ) {
                     parseError(status, "Empty entity");
                 }
-        		if( status == HttpStatus.SC_OK || status == HttpStatus.SC_BAD_REQUEST) {
+
+                String responseBody = EntityUtils.toString(entity);
+                if( status == HttpStatus.SC_OK || status == HttpStatus.SC_BAD_REQUEST) {
                     InputStream input = null;
                     try {
-                    	input = entity.getContent();
+                    	input = new ByteArrayInputStream(responseBody.getBytes("UTF-8"));
                     	if(input != null){
-                    		return DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input);
+                            Document doc = null;
+                            try{
+                                doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input);
+                            }
+                            catch(Exception ex){
+                                ex.printStackTrace();
+                                logger.debug(ex.toString(), ex);
+                            }
+                    		return doc;
                         }
                     }
                     catch( IOException e ) {
-                        logger.error("invoke(): Failed to read response error due to a cloud I/O error: " + e.getMessage());
-                        if( logger.isTraceEnabled() ) {
-                            e.printStackTrace();
-                        }
-                        throw new CloudException(e);
+                        logger.error("invoke(): Failed to read xml error due to a cloud I/O error: " + e.getMessage());
+                        throw new CloudException(e);                    
                     }
+                    /*
                     catch( SAXException e ) {
                         throw new CloudException(e);
-                    }
+                    }                    
                     catch( ParserConfigurationException e ) {
                         throw new InternalException(e);
                     }
-        		} else {
-
-                    String resultXML = null;
-                    try {
+                    */
+        		}
+        		else{        			
+                    /*String resultXML = null;
+                    try {                    	
                     	resultXML = EntityUtils.toString(entity);
                     }
                     catch( IOException e ) {
-                        logger.error("invoke(): Failed to read response error due to a cloud I/O error: " + e.getMessage());
+                        logger.error("invoke(): Failed to read xml error due to a cloud I/O error: " + e.getMessage());
                         if( logger.isTraceEnabled() ) {
                             e.printStackTrace();
                         }
-                        throw new CloudException(e);
+                        throw new CloudException(e);                    
                     }
-                    parseError(status, resultXML);
+                    if(resultXML != null){
+                    	parseError(status, resultXML);
+                        return DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(resultXML);
+                    } */
+                    if(responseBody != null){
+                        parseError(status, responseBody);
+                        Document parsedError = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(new ByteArrayInputStream(responseBody.getBytes("UTF-8")));
+                        return parsedError;
+                    }
         		}
     		} catch (ParseException e) {
-				e.printStackTrace();
+    			throw new CloudException(e);
+			} catch (SAXException e) {
+				throw new CloudException(e);
+			} catch (IOException e) {
+                e.printStackTrace();
+				throw new CloudException(e);
+			} catch (ParserConfigurationException e) {
+				throw new CloudException(e);
 			}
     		finally {
     			httpclient.getConnectionManager().shutdown();
@@ -286,25 +315,34 @@ public class OpSourceMethod {
 	}
 	
 	public String requestResult(String action, Document doc,String resultTag, String resultDetailTag) throws CloudException, InternalException{
-	
 		Logger wire = OpSource.getLogger(OpSource.class, "wire");
+		
+		 if(doc== null){
+	        throw new CloudException("Action -> " + action + " failed because request reponse is null");	
+		 }
                 
         if( wire.isDebugEnabled() ) {
         	wire.debug(provider.convertDomToString(doc));
-        }       
-    	NodeList blocks = doc.getElementsByTagName(resultTag);
+        }
+
+        String sNS = "";
+        try{
+            sNS = doc.getDocumentElement().getTagName().substring(0, doc.getDocumentElement().getTagName().indexOf(":") + 1);
+        }
+        catch(IndexOutOfBoundsException ex){}
+    	NodeList blocks = doc.getElementsByTagName(sNS + resultTag);
     	if(blocks != null){
     		for(int i=0;i< blocks.getLength();i++){
     			Node attr = blocks.item(i);
     			if(attr.getFirstChild().getNodeValue().equals(OpSource.RESPONSE_RESULT_SUCCESS_VALUE)){
-    				blocks = doc.getElementsByTagName(resultDetailTag);
+    				blocks = doc.getElementsByTagName(sNS + resultDetailTag);
     	    		if(blocks == null){
     	    			throw new CloudException(action + "  fails " + "without explaination !!!");
     	    		}else{
     	    			return blocks.item(0).getFirstChild().getNodeValue();
     	    		}
     			}else if(attr.getFirstChild().getNodeValue().equals(OpSource.RESPONSE_RESULT_ERROR_VALUE)){
-    				blocks = doc.getElementsByTagName(resultDetailTag);
+    				blocks = doc.getElementsByTagName(sNS + resultDetailTag);
     	    		if(blocks == null){
     	    			throw new CloudException(action+ " fails " + "without explaination !!!");
     	    		}else{    	    			
@@ -321,9 +359,14 @@ public class OpSourceMethod {
                 
         if( wire.isDebugEnabled() ) {
         	wire.debug(provider.convertDomToString(doc));
-        }        
-       
-    	NodeList blocks = doc.getElementsByTagName(resultCode);
+        }
+
+        String sNS = "";
+        try{
+            sNS = doc.getDocumentElement().getTagName().substring(0, doc.getDocumentElement().getTagName().indexOf(":") + 1);
+        }
+        catch(IndexOutOfBoundsException ex){}
+    	NodeList blocks = doc.getElementsByTagName(sNS + resultCode);
     	
     	if(blocks != null){
     		return blocks.item(0).getFirstChild().getNodeValue();
@@ -339,16 +382,17 @@ public class OpSourceMethod {
         	wire.debug(provider.convertDomToString(doc));
         }
 
-        if (doc == null) {
-            return null;
+        String sNS = "";
+        try{
+            sNS = doc.getDocumentElement().getTagName().substring(0, doc.getDocumentElement().getTagName().indexOf(":") + 1);
         }
-	        
-    	NodeList blocks = doc.getElementsByTagName(resultTag);
+        catch(IndexOutOfBoundsException ex){}
+    	NodeList blocks = doc.getElementsByTagName(sNS + resultTag);
     	if(blocks != null){
     		for(int i=0;i< blocks.getLength();i++){
     			Node attr = blocks.item(i);
     			if(attr.getFirstChild().getNodeValue().equals(OpSource.RESPONSE_RESULT_SUCCESS_VALUE)){
-    				blocks = doc.getElementsByTagName(resultDetailTag);
+    				blocks = doc.getElementsByTagName(sNS + resultDetailTag);
     	    		if(blocks == null){
     	    			throw new CloudException(action + "  fails " + "without explaination !!!");
     	    		}else{
@@ -357,7 +401,7 @@ public class OpSourceMethod {
     	    		}
     			}  		
     			if(attr.getFirstChild().getNodeValue().equals(OpSource.RESPONSE_RESULT_ERROR_VALUE)){
-    				blocks = doc.getElementsByTagName(OpSource.RESPONSE_RESULT_DETAIL_TAG);
+    				blocks = doc.getElementsByTagName(sNS + OpSource.RESPONSE_RESULT_DETAIL_TAG);
     	    		if(blocks == null){
     	    			logger.error(action + "  fails " + "without explaination !!!");
     	    			throw new CloudException(action + "  fails " + "without explaination !!!");
@@ -373,13 +417,18 @@ public class OpSourceMethod {
 	
 	public boolean requestResult(String action, Document doc) throws CloudException, InternalException{
 		
-		Logger wire = OpSource.getLogger(OpSource.class, "wire");
-                
+		Logger wire = OpSource.getLogger(OpSource.class, "wire");                
         if( wire.isDebugEnabled() ) {
         	wire.debug(provider.convertDomToString(doc));
-        } 
-    
-    	NodeList blocks = doc.getElementsByTagName(OpSource.RESPONSE_RESULT_TAG);
+        }
+
+        String sNS = "";
+        try{
+            sNS = doc.getDocumentElement().getTagName().substring(0, doc.getDocumentElement().getTagName().indexOf(":") + 1);
+        }
+        catch(IndexOutOfBoundsException ex){}
+
+    	NodeList blocks = doc.getElementsByTagName(sNS + OpSource.RESPONSE_RESULT_TAG);
     	if(blocks != null){
     		for(int i=0;i< blocks.getLength();i++){
     			Node attr = blocks.item(i);
@@ -387,7 +436,7 @@ public class OpSourceMethod {
     				return true;
     			}  		
     			if(attr.getFirstChild().getNodeValue().equals(OpSource.RESPONSE_RESULT_ERROR_VALUE)){
-    				blocks = doc.getElementsByTagName(OpSource.RESPONSE_RESULT_DETAIL_TAG);
+    				blocks = doc.getElementsByTagName(sNS + OpSource.RESPONSE_RESULT_DETAIL_TAG);
     	    		if(blocks == null){
     	    			throw new CloudException(action + " fails " + "without explaination !!!");
     	    		}else{
@@ -406,8 +455,13 @@ public class OpSourceMethod {
         if( wire.isDebugEnabled() ) {
         	wire.debug(provider.convertDomToString(doc));
         }
-         	        
-    	NodeList blocks = doc.getElementsByTagName(resultTag);
+
+        String sNS = "";
+        try{
+            sNS = doc.getDocumentElement().getTagName().substring(0, doc.getDocumentElement().getTagName().indexOf(":") + 1);
+        }
+        catch(IndexOutOfBoundsException ex){}
+    	NodeList blocks = doc.getElementsByTagName(sNS + resultTag);
     	if(blocks != null){
     		for(int i=0;i< blocks.getLength();i++){
     			Node attr = blocks.item(i);
@@ -415,7 +469,7 @@ public class OpSourceMethod {
     				return true;
     			}  		
     			if(attr.getFirstChild().getNodeValue().equals(OpSource.RESPONSE_RESULT_ERROR_VALUE)){
-    				blocks = doc.getElementsByTagName(resultDetailTag);
+    				blocks = doc.getElementsByTagName(sNS + resultDetailTag);
     	    		if(blocks == null){
     	    			logger.error(action + " fails " + "without explaination !!!");
     	    			throw new CloudException(action + " fails " + "without explaination !!!");
@@ -437,32 +491,47 @@ public class OpSourceMethod {
 		  logger.trace("enter - " + OpSourceMethod.class.getName() + ".parseError(" + httpStatus + "," + assumedXml + ")");
 		}	
 		try {
-            ParsedError error = new ParsedError();
-            
+            ParsedError error = new ParsedError();            
             error.code = httpStatus;
             error.message = null;
             try {
                 Document doc = parseResponse(httpStatus, assumedXml);
-                
-                NodeList codes = doc.getElementsByTagName("errorcode");
-                for( int i=0; i<codes.getLength(); i++ ) {
+                String sNS = "";
+                try{
+                    sNS = doc.getDocumentElement().getTagName().substring(0, doc.getDocumentElement().getTagName().indexOf(":") + 1);
+                }
+                catch(IndexOutOfBoundsException ex){}
+
+                NodeList codes = doc.getElementsByTagName(sNS + "resultCode");
+                String reasoncode = codes.item(0).getFirstChild().getNodeValue();
+                reasoncode = reasoncode.substring(reasoncode.indexOf("_")+1);
+                error.code = Integer.parseInt(reasoncode);
+                /*for( int i=0; i<codes.getLength(); i++ ) {
                     Node n = codes.item(i);
                     
                     if( n != null && n.hasChildNodes() ) {
                         error.code = Integer.parseInt(n.getFirstChild().getNodeValue().trim());
                     }
-                }
-                NodeList text = doc.getElementsByTagName("errortext");
-                for( int i=0; i<text.getLength(); i++ ) {
+                }*/
+
+                NodeList text = doc.getElementsByTagName(sNS + "resultDetail");
+                error.message = text.item(0).getFirstChild().getNodeValue();
+                /*for( int i=0; i<text.getLength(); i++ ) {
                     Node n = text.item(i);
                     
                     if( n != null && n.hasChildNodes() ) {
                         error.message = n.getFirstChild().getNodeValue();
                     }
-                }
+                }*/
+                System.out.println(error.code + " " + error.message);
             }
             catch( Throwable ignore ) {
-                logger.warn("parseError(): Error was unparsable: " + ignore.getMessage());
+                String errorMessage = "";
+                try{
+                    errorMessage = URLDecoder.decode(ignore.getMessage(), "UTF-8");
+                }
+                catch(Exception ex){ex.printStackTrace();}
+                logger.warn("parseError(): Error was unparsable: " + errorMessage);
                 if( error.message == null ) {
                     error.message = assumedXml;
                 }
@@ -484,6 +553,9 @@ public class OpSourceMethod {
                     error.message = "Received error code from server: " + httpStatus;
                 }
             }
+            
+            logger.trace("errors - " + error.message);
+            
             return error;
         }
         finally {
@@ -505,9 +577,13 @@ public class OpSourceMethod {
 	    		if( wire.isDebugEnabled() ) {
 	    			wire.debug(xml);
 	    		}
-	            ByteArrayInputStream input = new ByteArrayInputStream(xml.getBytes("utf-8"));
-	                
-	            return DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input);
+	            //ByteArrayInputStream input = new ByteArrayInputStream(xml.getBytes("UTF-8"));
+
+	            //return DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input);
+
+                Document parseForError = null;
+                parseForError = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(new ByteArrayInputStream(xml.getBytes("UTF-8")));
+                return parseForError;
 	    	}
 	        catch( IOException e ) {
 	        	throw new CloudException(e);

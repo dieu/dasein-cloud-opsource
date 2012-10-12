@@ -70,8 +70,8 @@ public class OpSource extends AbstractCloud {
 	static public final String NETWORK_BASE_PATH            	= "network";
 	static public final String LOCATION_BASE_PATH             	= "datacenterWithLimits";
 	/** Response Tag */
-	static public final String RESPONSE_RESULT_TAG             	= "ns9:result";
-	static public final String RESPONSE_RESULT_DETAIL_TAG       = "ns9:result";
+	static public final String RESPONSE_RESULT_TAG             	= "result";
+	static public final String RESPONSE_RESULT_DETAIL_TAG       = "result";
 	/** Response value */
 	static public final String RESPONSE_RESULT_ERROR_VALUE       = "ERROR";
 	static public final String RESPONSE_RESULT_SUCCESS_VALUE     = "SUCCESS";
@@ -352,7 +352,12 @@ public class OpSource extends AbstractCloud {
 		
 			OpSourceMethod method = new OpSourceMethod(this, url, parameters);
 			Document doc = method.invoke();
-			NodeList blocks = doc.getElementsByTagName("ns2:orgId");
+            String sNS = "";
+            try{
+                sNS = doc.getDocumentElement().getTagName().substring(0, doc.getDocumentElement().getTagName().indexOf(":") + 1);
+            }
+            catch(IndexOutOfBoundsException ex){}
+			NodeList blocks = doc.getElementsByTagName(sNS + "orgId");
 			if(blocks != null){
 				orgId = blocks.item(0).getFirstChild().getNodeValue();
 			
@@ -512,7 +517,7 @@ public class OpSource extends AbstractCloud {
     }
     
     public String getDataCenterId(String regionId){
-    	return regionId+"a";
+    	return regionId;
     }
     
     @Override

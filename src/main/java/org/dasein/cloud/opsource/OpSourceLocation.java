@@ -35,7 +35,6 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
 public class OpSourceLocation implements DataCenterServices {
-    private static String DATA_CENTER_TAG = "ns7:datacenterWithLimits";
 	
 	private OpSource provider = null;
 	OpSourceLocation(OpSource provider) {
@@ -96,9 +95,9 @@ public class OpSourceLocation implements DataCenterServices {
 		DataCenter dc = new DataCenter();
 		dc.setActive(true);
 		dc.setAvailable(true);
-		dc.setName(region.getName() + "a");
+		dc.setName(region.getName() + " (DC)");
 		dc.setRegionId(regionId);
-		dc.setProviderDataCenterId(regionId + "a");
+		dc.setProviderDataCenterId(regionId);
 		list.add(dc);		
 		return list;
 	}
@@ -116,11 +115,16 @@ public class OpSourceLocation implements DataCenterServices {
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "GET",null));
     	
 		Document doc = method.invoke();
-		NodeList blocks = doc.getElementsByTagName(DATA_CENTER_TAG);
+        String sNS = "";
+        try{
+            sNS = doc.getDocumentElement().getTagName().substring(0, doc.getDocumentElement().getTagName().indexOf(":") + 1);
+        }
+        catch(IndexOutOfBoundsException ex){}
+		NodeList blocks = doc.getElementsByTagName(sNS + "datacenterWithLimits");
 		if(blocks != null){
 			for(int i=0; i< blocks.getLength();i++){
 				Node item = blocks.item(i);
-				Region region = toRegion(item);
+				Region region = toRegion(item, sNS);
 				if(region != null){
 					list.add(region);						
 				}
@@ -128,7 +132,7 @@ public class OpSourceLocation implements DataCenterServices {
 	    }		
 		return list;
 	}	
-	private Region toRegion( Node region) throws CloudException{
+	private Region toRegion( Node region, String nameSpace) throws CloudException{
 		if(region == null){
 			return null;
 		}
@@ -142,10 +146,10 @@ public class OpSourceLocation implements DataCenterServices {
 			Node item = data.item(i);
 			if(item.getNodeType() == Node.TEXT_NODE) continue;
 			
-			if( item.getNodeName().equals("ns7:location") ) {
+			if( item.getNodeName().equals(nameSpace + "location") ) {
 				r.setProviderRegionId(item.getFirstChild().getNodeValue());
 			}
-			else if( item.getNodeName().equals("ns7:displayName") ) {
+			else if( item.getNodeName().equals(nameSpace + "displayName") ) {
 				r.setName(item.getFirstChild().getNodeValue());
 			}
 		}	
@@ -158,6 +162,9 @@ public class OpSourceLocation implements DataCenterServices {
 		}
 		else if( host.contains("au") ) {
 		    r.setJurisdiction("AU");
+		}
+		else if( host.contains("af") ) {
+		    r.setJurisdiction("ZA");
 		}
 		else  {
 		    r.setJurisdiction("US");

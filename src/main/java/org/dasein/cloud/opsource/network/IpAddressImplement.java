@@ -92,10 +92,10 @@ public class IpAddressImplement implements IpAddressSupport {
         Element sourceIpElmt = doc.createElement("ns4:sourceIp");
         sourceIpElmt.setTextContent(privateIp);
                 
-        doc.appendChild(natRule);        
         natRule.appendChild(nameElmt);
         natRule.appendChild(sourceIpElmt);
-                
+        doc.appendChild(natRule);
+
         HashMap<Integer, Param>  parameters = new HashMap<Integer, Param>();
         Param param = new Param(OpSource.NETWORK_BASE_PATH, null);
     	parameters.put(0, param);
@@ -109,7 +109,7 @@ public class IpAddressImplement implements IpAddressSupport {
     			provider.buildUrl(null,true, parameters),
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "POST", provider.convertDomToString(doc)));
     	
-    	method.parseRequestResult("Assign Ip",method.invoke(), "ns9:result", "ns9:resultDetail");
+    	method.parseRequestResult("Assign Ip",method.invoke(), "result", "resultDetail");
     }
     
     public String getPrivateIPFromServerId(String serverId) throws InternalException, CloudException{
@@ -317,8 +317,13 @@ config
        			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "GET", null));
          	
        	Document doc = method.invoke();
-      
-        NodeList matches = doc.getElementsByTagName("ns4:publicIps");
+
+        String sNS = "";
+        try{
+            sNS = doc.getDocumentElement().getTagName().substring(0, doc.getDocumentElement().getTagName().indexOf(":") + 1);
+        }
+        catch(IndexOutOfBoundsException ex){}
+        NodeList matches = doc.getElementsByTagName(sNS + "publicIps");
         if(matches != null){
             for( int i=0; i<matches.getLength(); i++ ) {
                 Node item = matches.item(i); 
@@ -327,8 +332,8 @@ config
                 for(int j = 0;j <ipblocks.getLength(); j++ ){
                 	 Node node = ipblocks.item(j); 
                 	 if(node.getNodeType() == Node.TEXT_NODE) continue;
-                	 if(node.getNodeName().equals("ns4:IpBlock")){
-                    	ArrayList<IpAddress> list = (ArrayList<IpAddress>) toPublicAddress(node, networkId);
+                	 if(node.getNodeName().equals(sNS + "IpBlock")){
+                    	ArrayList<IpAddress> list = (ArrayList<IpAddress>) toPublicAddress(node, networkId, sNS);
                     	if(list == null) continue;         	
            		
                 		for(org.dasein.cloud.network.IpAddress ip: list){
@@ -393,12 +398,17 @@ config
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "GET",null));
     	
     	Document doc =  method.invoke();
-    	
-    	NodeList matches = doc.getElementsByTagName("ns4:NatRule");
+
+        String sNS = "";
+        try{
+            sNS = doc.getDocumentElement().getTagName().substring(0, doc.getDocumentElement().getTagName().indexOf(":") + 1);
+        }
+        catch(IndexOutOfBoundsException ex){}
+    	NodeList matches = doc.getElementsByTagName(sNS + "NatRule");
     	if(matches != null){
     		for(int i = 0; i< matches.getLength();i++){
     			Node node = matches.item(i);
-    			NatRule rule = this.toNatRule(node);
+    			NatRule rule = this.toNatRule(node, sNS);
     			if(rule != null){
     				rule.setVlanId(networkId);
     				list.add(rule);
@@ -458,15 +468,15 @@ config
         	Network network = new Network(provider);
         	Subnet subnet = network.createSubnet(defaultVlan);
         	//Return first IP of the subnet
-        	return subnet.getTags().get("ns4:baseIp");  
+        	return subnet.getTags().get("baseIp");
     	}  	
     }
     
     public void stopForward(String ruleId) throws InternalException, CloudException {
     	throw new OperationNotSupportedException("Not support for stopForwarding for OpSource");
     }
-
-    private NatRule toNatRule( Node node){
+    
+    private NatRule toNatRule(Node node, String nameSpace){
     	if(node == null){
     		return null;
     	}
@@ -485,13 +495,13 @@ config
 	         else {
 	             continue;
 	         }
-	         if( name.equalsIgnoreCase("ns4:id") ) {
+	         if( name.equalsIgnoreCase(nameSpace + "id") ) {
 	             rule.setId(value);
 	         }
-	         else if( name.equalsIgnoreCase("ns4:natIp") ) {
+	         else if( name.equalsIgnoreCase(nameSpace + "natIp") ) {
 	        	 rule.setNatIp(value);
 	         }
-	         else if( name.equalsIgnoreCase("ns4:sourceIp") ) {
+	         else if( name.equalsIgnoreCase(nameSpace + "sourceIp") ) {
 	        	 rule.setSourceIp(value);
 	         }
 	     }
@@ -504,7 +514,7 @@ config
 	     }	    
     }
  
-    private Collection<IpAddress> toPublicAddress(Node node, String networkId) throws InternalException, CloudException {
+    private Collection<IpAddress> toPublicAddress(Node node, String networkId, String nameSpace) throws InternalException, CloudException {
         ArrayList<IpAddress> list = new ArrayList<IpAddress> ();
                  
     	IpAddress address = null;
@@ -524,16 +534,16 @@ config
             else {
                 continue;
             }
-            if( name.equalsIgnoreCase("id") ) {
+            if( name.equalsIgnoreCase(nameSpace + "id") ) {
             	//
             }
-            else if(name.equalsIgnoreCase("ns4:baseIp") ) {
+            else if(name.equalsIgnoreCase(nameSpace + "baseIp") ) {
                 baseIp = value;
             }
-            else if(name.equalsIgnoreCase("ns4:subnetSize") ) {
+            else if(name.equalsIgnoreCase(nameSpace + "subnetSize") ) {
             	ipSize = Integer.valueOf(value);
             }
-            else if( name.equalsIgnoreCase("ns4:networkDefault") ) {
+            else if( name.equalsIgnoreCase(nameSpace + "networkDefault") ) {
             	//
             } 
         }    

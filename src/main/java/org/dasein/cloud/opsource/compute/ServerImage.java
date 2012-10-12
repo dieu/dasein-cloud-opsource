@@ -226,7 +226,7 @@ public class ServerImage implements MachineImageSupport {
     			provider.buildUrl(null,true, parameters),
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "GET",null));
     	
-    	if(method.parseRequestResult("Imaging",method.invoke(), "ns9:result", "ns9:resultDetail")){
+    	if(method.parseRequestResult("Imaging", method.invoke(), "result", "resultDetail")){
     	   	//First check the pending images, because it is mostly being checked by customers
         	ArrayList<MachineImage> list = (ArrayList<MachineImage>) listCustomerMachinePendingImages();
         	for(MachineImage image : list){
@@ -329,7 +329,7 @@ public class ServerImage implements MachineImageSupport {
 	        if(matches != null){
 	            for( int i=0; i<matches.getLength(); i++ ) {
 	                Node node = matches.item(i);            
-	                MachineImage image = this.toImage(node, true, false);
+	                MachineImage image = this.toImage(node, true, false, "");
 	                
 	                if( image != null ) {
 	                	list.add(image);
@@ -372,7 +372,7 @@ public class ServerImage implements MachineImageSupport {
         if(matches != null){
             for( int i=0; i<matches.getLength(); i++ ) {
                 Node node = matches.item(i);            
-                MachineImage image = toImage(node, true, true);
+                MachineImage image = toImage(node, true, true, "");
                 
                 if( image != null ) {
                 	list.add(image);
@@ -414,7 +414,7 @@ public class ServerImage implements MachineImageSupport {
         for( int i=0; i<matches.getLength(); i++ ) {
             Node node = matches.item(i);
             
-            MachineImage image = toImage(node,false,false);
+            MachineImage image = toImage(node,false,false, "");
             
             if( image != null ) {
             	list.add(image);
@@ -577,7 +577,7 @@ public class ServerImage implements MachineImageSupport {
     }
     
  
-    private MachineImage toImage(Node node, boolean isCustomerDeployed, boolean isPending) throws CloudException, InternalException {
+    private MachineImage toImage(Node node, boolean isCustomerDeployed, boolean isPending, String nameSpace) throws CloudException, InternalException {
         Architecture bestArchitectureGuess = Architecture.I64;
         MachineImage image = new MachineImage();
         
@@ -616,12 +616,16 @@ public class ServerImage implements MachineImageSupport {
             else {
                 continue;
             }
-            if( name.equals("id") ) {
+
+            String nameSpaceString = "";
+            if(!nameSpace.equals("")) nameSpaceString = nameSpace + ":";
+
+            if( name.equals(nameSpaceString + "id") ) {
                 image.setProviderMachineImageId(value);
-            }else if(name.equals("resourcePath") && value != null ){
+            }else if(name.equals(nameSpaceString + "resourcePath") && value != null ){
             	image.getTags().put("resourcePath", value);
             }            
-            else if( name.equals("name") ) {
+            else if( name.equals(nameSpaceString + "name") ) {
                 image.setName(value);
                 if(  value.contains("x64") ||  value.contains("64-bit") ||  value.contains("64 bit") ) {
                     bestArchitectureGuess = Architecture.I64;
@@ -630,7 +634,7 @@ public class ServerImage implements MachineImageSupport {
                     bestArchitectureGuess = Architecture.I32;
                 }
             }
-            else if( name.equals("description") ) {
+            else if( name.equals(nameSpaceString + "description") ) {
                 image.setDescription(value);
                 if( value.contains("x64") ||  value.contains("64-bit") ||  value.contains("64 bit") ) {
                     bestArchitectureGuess = Architecture.I64;
@@ -639,33 +643,32 @@ public class ServerImage implements MachineImageSupport {
                     bestArchitectureGuess = Architecture.I32;
                 }
             }
-            else if( name.equals("machineSpecification") ) {
+            else if( name.equals(nameSpaceString + "machineSpecification") ) {
             	NodeList machineAttributes  = attribute.getChildNodes();
             	for(int j=0;j<machineAttributes.getLength();j++ ){
             		Node machine = machineAttributes.item(j);
-	            	if( machine.getNodeName().equals("operatingSystem") ){
+	            	if( machine.getNodeName().equals(nameSpaceString + "operatingSystem") ){
 		            	 NodeList osAttributes  = machine.getChildNodes();
 		            	 for(int k=0;k<osAttributes.getLength();k++ ){
 		            		 Node os = osAttributes.item(k);
 		            		 
 		            		 if(os.getNodeType() == Node.TEXT_NODE) continue;
 		            		 
-		            		 String osName = os.getNodeName();              
+		            		 String osName = os.getNodeName();
 		                     
 		            		 String osValue = null ;
 		            		 
-		                     if( osName.equals("displayName") && os.getChildNodes().getLength() > 0 ) {
+		                     if( osName.equals(nameSpaceString + "displayName") && os.getChildNodes().getLength() > 0 ) {
 		                    	 osValue = os.getFirstChild().getNodeValue();
 		                     }
-		                     else if( osName.equals("type") && os.getChildNodes().getLength() > 0) {
+		                     else if( osName.equals(nameSpaceString + "type") && os.getChildNodes().getLength() > 0) {
 			                     image.setPlatform(Platform.guess(os.getFirstChild().getNodeValue()));			                       
 		                     }
-		                     else if( osName.equalsIgnoreCase("cpuCount") && os.getFirstChild().getNodeValue() != null ) {
+		                     else if( osName.equalsIgnoreCase(nameSpaceString + "cpuCount") && os.getFirstChild().getNodeValue() != null ) {
 		                    	 
 		                    	 image.getTags().put("cpuCount", os.getFirstChild().getNodeValue());
 		                     }  
-		                     else if( osName.equalsIgnoreCase("memory") && os.getFirstChild().getNodeValue() != null ) {
-		                         System.out.println("It is here");
+		                     else if( osName.equalsIgnoreCase(nameSpaceString + "memory") && os.getFirstChild().getNodeValue() != null ) {
 		                    	 image.getTags().put("memory", os.getFirstChild().getNodeValue());
 		                     }
 		                     
@@ -676,7 +679,7 @@ public class ServerImage implements MachineImageSupport {
 	            	}
             	}             
             }
-            else if( name.equals("operatingSystem") ) {           
+            else if( name.equals(nameSpaceString + "operatingSystem") ) {
             	
            	 	NodeList osAttributes  = attribute.getChildNodes();
            	 	
@@ -690,17 +693,17 @@ public class ServerImage implements MachineImageSupport {
 	                 
 	        		 String osValue = null ;
 	        		 
-	                 if( osName.equals("displayName") && os.getChildNodes().getLength() > 0 ) {
+	                 if( osName.equals(nameSpaceString + "displayName") && os.getChildNodes().getLength() > 0 ) {
 	                	 osValue = os.getFirstChild().getNodeValue();
 	                 }
-	                 else if( osName.equals("type") && os.getChildNodes().getLength() > 0) {
+	                 else if( osName.equals(nameSpaceString + "type") && os.getChildNodes().getLength() > 0) {
 	                     image.setPlatform(Platform.guess(os.getFirstChild().getNodeValue()));			                       
 	                 }
-	                 else if( osName.equalsIgnoreCase("cpuCount") && os.getFirstChild().getNodeValue() != null ) {
+	                 else if( osName.equalsIgnoreCase(nameSpaceString + "cpuCount") && os.getFirstChild().getNodeValue() != null ) {
 	                	 
 	                	 image.getTags().put("cpuCount", os.getFirstChild().getNodeValue());
 	                 }  
-	                 else if( osName.equalsIgnoreCase("memory") && os.getFirstChild().getNodeValue() != null ) {
+	                 else if( osName.equalsIgnoreCase(nameSpaceString + "memory") && os.getFirstChild().getNodeValue() != null ) {
 	                   
 	                	 image.getTags().put("memory", os.getFirstChild().getNodeValue());
 	                 }
@@ -715,19 +718,19 @@ public class ServerImage implements MachineImageSupport {
            	 	}            	
             
            }
-           else if( name.equals("location") && value != null) {        	 
+           else if( name.equals(nameSpaceString + "location") && value != null) {
         	   if(! provider.getDefaultRegionId().equals(value)){
         		  return null;  
         	   }
         	   image.setProviderRegionId(value);
         	   
            }
-           else if( name.equals("cpuCount") && value != null ) {
+           else if( name.equals(nameSpaceString + "cpuCount") && value != null ) {
         	
         	   image.getTags().put("cpuCount", value);
  
            }  
-           else if( name.equals("memory") && value != null ) {
+           else if( name.equals(nameSpaceString + "memory") && value != null ) {
         	   image.getTags().put("memory", value);
            } 
            else if( name.equals("created") ) {
@@ -735,21 +738,24 @@ public class ServerImage implements MachineImageSupport {
                // TODO: implement when dasein cloud supports template creation timestamps
            	
            }
-           else if( name.equals("osStorage") ) {
+           else if( name.equals(nameSpaceString + "osStorage") ) {
               // TODO
            }
-           else if( name.equals("location") ) {
+           else if( name.equals(nameSpaceString + "location") ) {
             	image.setProviderRegionId(value);
            }           
-           else if( name.equals("deployedTime") ) {
+           else if( name.equals(nameSpaceString + "deployedTime") ) {
                 // 2010-06-29T20:49:28+1000
                 // TODO: implement when dasein cloud supports template creation timestamps
-           }else if( name.equals("sourceServerId") ) {
+           }else if( name.equals(nameSpaceString + "sourceServerId") ) {
             	//TODO
-           }else if( name.equals("softwareLabel") ) {
+           }else if( name.equals(nameSpaceString + "softwareLabel") ) {
             	image.setSoftware(value);
            }
             
+        }
+        if(image.getDescription() == null || image.getDescription().equals("")){
+            image.setDescription(image.getName());
         }
         if( image.getPlatform() == null && image.getName() != null ) {
             image.setPlatform(Platform.guess(image.getName()));            
@@ -767,7 +773,7 @@ public class ServerImage implements MachineImageSupport {
         }
         if( image.getSoftware() == null ) {
         	guessSoftware(image);        	
-        }               
+        }
         return image;       
     }
     

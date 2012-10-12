@@ -26,6 +26,7 @@ import java.util.Locale;
 
 import javax.annotation.Nonnull;
 
+import org.apache.log4j.Logger;
 import org.dasein.cloud.CloudException;
 import org.dasein.cloud.InternalException;
 import org.dasein.cloud.OperationNotSupportedException;
@@ -46,6 +47,9 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
 public class Network implements VLANSupport {
+
+    static public final Logger logger = Logger.getLogger(VLANSupport.class);
+
     static public final String CREATE_NETWORK         = "createNetwork";
     static public final String LIST_NETWORK_OFFERINGS = "listNetworkOfferings";
     static public final String LIST_NETWORKS          = "listNetworks";
@@ -56,7 +60,7 @@ public class Network implements VLANSupport {
 
     @Override
     public boolean allowsNewSubnetCreation() throws CloudException, InternalException {
-        return true;
+        return false;
     }
     
     @Override
@@ -102,12 +106,18 @@ public class Network implements VLANSupport {
     			provider.buildUrl(null,true, parameters),
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "GET",null));
       	Document doc = method.invoke();
-     
-        NodeList matches = doc.getElementsByTagName("ns4:network");
-        
+
+        String sNS = "";
+        try{
+            sNS = doc.getDocumentElement().getTagName().substring(0, doc.getDocumentElement().getTagName().indexOf(":") + 1);
+        }
+        catch(IndexOutOfBoundsException ex){}
+        NodeList matches = doc.getElementsByTagName(sNS + "network");
+
         if(matches != null){
             for( int i=0; i<matches.getLength(); i++ ) {
-                Node node = matches.item(i);            
+                Node node = matches.item(i);
+
                 VLAN vlan = toVLAN(node);                
                 if( vlan != null ) {
                 	list.add(vlan);
@@ -156,18 +166,18 @@ public class Network implements VLANSupport {
         
         descriptionElmt.setTextContent(description);
         
-        doc.appendChild(vlan);
         vlan.appendChild(nameElmt);
         vlan.appendChild(descriptionElmt);
         if(location != null){
-        	vlan.appendChild(location);        	
+            vlan.appendChild(location);
         }
+        doc.appendChild(vlan);
         
     	OpSourceMethod method = new OpSourceMethod(provider, 
     			provider.buildUrl(null,true, parameters),
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "POST", provider.convertDomToString(doc)));
       	
-    	String vlanId = method.getRequestResultId("Creating VLan",method.invoke(), "ns9:result", "ns9:resultDetail");
+    	String vlanId = method.getRequestResultId("Creating VLan",method.invoke(), "result", "resultDetail");
       	if(vlanId != null){      	
       		return this.getVlan(vlanId);      		
       	}else{
@@ -189,7 +199,7 @@ public class Network implements VLANSupport {
     	OpSourceMethod method = new OpSourceMethod(provider, 
     			provider.buildUrl("delete",true, parameters),
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "GET", null));
-    	method.parseRequestResult("Removing Vlan",method.invoke(), "ns9:result", "ns9:resultDetail");
+    	method.parseRequestResult("Removing Vlan",method.invoke(), "result", "resultDetail");
         
     }
 
@@ -199,13 +209,18 @@ public class Network implements VLANSupport {
         }
         String netmask = null;
         VLAN network = new VLAN();
+        String sNS = "";
+        try{
+            sNS = node.getNodeName().substring(0, node.getNodeName().indexOf(":") + 1);
+        }
+        catch(IndexOutOfBoundsException ex){}
         
         NodeList attributes = node.getChildNodes();
 
         network.setProviderOwnerId(provider.getContext().getAccountNumber());
         network.setCurrentState(VLANState.AVAILABLE);
         network.setProviderRegionId(provider.getContext().getRegionId());
-                
+
         for( int i=0; i<attributes.getLength(); i++ ) {
             Node attribute = attributes.item(i);
             String name = attribute.getNodeName().toLowerCase();
@@ -217,68 +232,67 @@ public class Network implements VLANSupport {
             else {
                 continue;
             }
-            if( name.equalsIgnoreCase("ns4:id") ) {
+            if( name.equalsIgnoreCase(sNS + "id") ) {
                 network.setProviderVlanId(value);
             }
-            else if( name.equalsIgnoreCase("ns4:name") ) {
+            else if( name.equalsIgnoreCase(sNS + "name") ) {
                 if( network.getName() == null ) {
                     network.setName(value);
                 }
             }
-            else if( name.equalsIgnoreCase("ns4:description") ) {
-                network.setName(value);
+            else if( name.equalsIgnoreCase(sNS + "description") ) {
+                network.setDescription(value);
             }
-            else if( name.equalsIgnoreCase("ns4:location") && value != null ) {
+            else if( name.equalsIgnoreCase(sNS + "location") && value != null ) {
                 network.setProviderRegionId(value);
-                //TODO dasein
-//                if(! value.equals(provider.getContext().getRegionId())){
-//                	return null;
-//                }
+                if(! value.equals(provider.getContext().getRegionId())){
+                	return null;                	
+                }
             }
-            else if( name.equalsIgnoreCase("ns4:privateNet") && value != null ) {
+            else if( name.equalsIgnoreCase(sNS + "privateNet") && value != null ) {
             	network.setGateway(value);            	
             }
-            else if( name.equalsIgnoreCase("ns4:multicast") && value != null ) {
+            else if( name.equalsIgnoreCase(sNS + "multicast") && value != null ) {
             	//           	
             }
             //From here is the information for get specific network
-            else if( name.equalsIgnoreCase("ns4:network") && value != null ) {
+            else if( name.equalsIgnoreCase(sNS + "network") && value != null ) {
          		NodeList networkAttributes  = attribute.getChildNodes();
            		for(int j=0;j<networkAttributes.getLength();j++ ){
 	           		Node networkItem = networkAttributes.item(j);
-	           		if( networkItem.getNodeName().equalsIgnoreCase("ns4:id") && networkItem.getFirstChild().getNodeValue() != null ) {
+	           		if( networkItem.getNodeName().equalsIgnoreCase(sNS + "id") && networkItem.getFirstChild().getNodeValue() != null ) {
 	                    network.setProviderVlanId(networkItem.getFirstChild().getNodeValue());
 	                }
-	                else if( networkItem.getNodeName().equalsIgnoreCase("ns4:name") && networkItem.getFirstChild().getNodeValue() != null ) {
+	                else if( networkItem.getNodeName().equalsIgnoreCase(sNS + "name") && networkItem.getFirstChild().getNodeValue() != null ) {
 	                    if( network.getName() == null ) {
 	                        network.setName(networkItem.getFirstChild().getNodeValue());
 	                    }
 	                }
-	                else if( networkItem.getNodeName().equalsIgnoreCase("ns4:description") && networkItem.getFirstChild().getNodeValue() != null ) {
-	                    network.setName(networkItem.getFirstChild().getNodeValue());
+	                else if( networkItem.getNodeName().equalsIgnoreCase(sNS + "description") && networkItem.getFirstChild().getNodeValue() != null ) {
+	                    network.setDescription(networkItem.getFirstChild().getNodeValue());
 	                }	                       
            		}              	
             }
-            else if( name.equalsIgnoreCase("ns4:publicSnat") && value != null ) {
+            else if( name.equalsIgnoreCase(sNS + "publicSnat") && value != null ) {
             	//network.setGateway(value);            	
             }
-            else if( name.equalsIgnoreCase("ns4:privateSnat") && value != null ) {
+            else if( name.equalsIgnoreCase(sNS + "privateSnat") && value != null ) {
             	//network.setGateway(value);            	
             }
-            else if( name.equalsIgnoreCase("ns4:privateNet") && value != null ) {
+            else if( name.equalsIgnoreCase(sNS + "privateNet") && value != null ) {
             	network.setGateway(value);            	
             }
-            else if( name.equalsIgnoreCase("ns4:publicIps") && value != null ) {
+            else if( name.equalsIgnoreCase(sNS + "publicIps") && value != null ) {
          		NodeList publicIpAttributes  = attribute.getChildNodes();
            		for(int j=0;j<publicIpAttributes.getLength();j++ ){
 	           		Node publicIpAttribute = publicIpAttributes.item(j);
-	 	            if( publicIpAttribute.getNodeName().equals("ns4:IpBlock") ){
+	 	            if( publicIpAttribute.getNodeName().equals(sNS + "IpBlock") ){
 	 	            	NodeList ipItems  = publicIpAttribute.getChildNodes();
 	 		            for(int k=0;k<ipItems.getLength();k++ ){
 	 		            	Node ipItem = ipItems.item(j);	 		            	
-	 		                if( ipItem.getNodeName().equals("ns4:id") && ipItem.getFirstChild().getNodeValue() != null ) {
+	 		                if( ipItem.getNodeName().equals(sNS + "id") && ipItem.getFirstChild().getNodeValue() != null ) {
 	 		                	
-	 		                }else if( ipItem.getNodeName().equals("ns4:baseIp") && ipItem.getFirstChild().getNodeValue() != null ) {
+	 		                }else if( ipItem.getNodeName().equals(sNS + "baseIp") && ipItem.getFirstChild().getNodeValue() != null ) {
 	 		                	//	                       
 	 		                }
 	 		                        		     		 
@@ -311,8 +325,14 @@ public class Network implements VLANSupport {
             return null;
         }  
         VLAN network = new VLAN();
+        String sNS = "";
+        try{
+            sNS = node.getNodeName().substring(0, node.getNodeName().indexOf(":") + 1);
+        }
+        catch(IndexOutOfBoundsException ex){}
         
         network.setProviderRegionId(provider.getContext().getRegionId());
+        network.setProviderDataCenterId(network.getProviderRegionId());
         
         NodeList attributes = node.getChildNodes();
         
@@ -328,21 +348,21 @@ public class Network implements VLANSupport {
             else {
                continue;
             }
-            if( name.equalsIgnoreCase("ns4:id") ) {
+            if( name.equalsIgnoreCase(sNS + "id") ) {
                 network.setProviderVlanId(value);
             }
-            else if( name.equalsIgnoreCase("ns4:name") ) {      
+            else if( name.equalsIgnoreCase(sNS + "name") ) {
             	network.setName(value);               
             }
-            else if( name.equalsIgnoreCase("ns4:description") ) {
+            else if( name.equalsIgnoreCase(sNS + "description") ) {
                 network.setDescription(value);
             }
-            else if( name.equalsIgnoreCase("ns4:location") ) {
+            else if( name.equalsIgnoreCase(sNS + "location") ) {
                 if(value != provider.getContext().getRegionId()){ 
                 	return null;
                 }                
             }
-            else if( name.equalsIgnoreCase("ns4:multicast") && value != null ) {
+            else if( name.equalsIgnoreCase(sNS + "multicast") && value != null ) {
             	//network.setGateway(value);            	
             }
         }
@@ -362,6 +382,11 @@ public class Network implements VLANSupport {
         }
   
         String regionId = null;
+        String sNS = "";
+        try{
+            sNS = node.getNodeName().substring(0, node.getNodeName().indexOf(":") + 1);
+        }
+        catch(IndexOutOfBoundsException ex){}
         
         NodeList attributes = node.getChildNodes();
         
@@ -376,39 +401,39 @@ public class Network implements VLANSupport {
             else {
                 value = null;
             }
-            if( name.equalsIgnoreCase("ns4:id") ) {
+            if( name.equalsIgnoreCase(sNS + "id") ) {
          
             }            
-            else if( name.equalsIgnoreCase("ns4:location") && value != null ) {
+            else if( name.equalsIgnoreCase(sNS + "location") && value != null ) {
                 regionId = value;
             }          
-            else if( name.equalsIgnoreCase("ns4:publicIps") && value != null ) {
+            else if( name.equalsIgnoreCase(sNS + "publicIps") && value != null ) {
          		NodeList publicIpAttributes  = attribute.getChildNodes();
            		for(int j=0;j<publicIpAttributes.getLength();j++ ){
 	           		Node publicIpAttribute = publicIpAttributes.item(j);
-	 	            if( publicIpAttribute.getNodeName().equals("ns4:IpBlock") ){
+	 	            if( publicIpAttribute.getNodeName().equals(sNS + "IpBlock") ){
 	 	            	VLAN  vlan = new VLAN();
 	 	            	NodeList ipItems  = publicIpAttribute.getChildNodes();
 	 		            for(int k=0;k<ipItems.getLength();k++ ){
 	 		            	Node ipItem = ipItems.item(j);	
 	 		            	String baseIp=null;
 	 		            	int mask = -1;
-	 		                if( ipItem.getNodeName().equals("ns4:id") && ipItem.getFirstChild().getNodeValue() != null ) {
+	 		                if( ipItem.getNodeName().equals(sNS + "id") && ipItem.getFirstChild().getNodeValue() != null ) {
 	 		                	vlan.setProviderVlanId(ipItem.getFirstChild().getNodeValue());
 	 		                }
-	 		                else if( ipItem.getNodeName().equals("ns4:baseIp") && ipItem.getFirstChild().getNodeValue() != null ) {
+	 		                else if( ipItem.getNodeName().equals(sNS + "baseIp") && ipItem.getFirstChild().getNodeValue() != null ) {
 	 		                	baseIp = ipItem.getFirstChild().getNodeValue();
 	 		                }
-	 		                else if( ipItem.getNodeName().equals("ns4:subnetSiz") && ipItem.getFirstChild().getNodeValue() != null ) {
+	 		                else if( ipItem.getNodeName().equals(sNS + "subnetSiz") && ipItem.getFirstChild().getNodeValue() != null ) {
 	 		                	String itemValue = ipItem.getFirstChild().getNodeValue();
 	 		                	if(isNumeric(itemValue)){
 	 		                		mask =  32 - (int) Math.log(Integer.valueOf(itemValue));
 	 		                	} 		                	
 	 		                }
-	 		                else if( ipItem.getNodeName().equals("ns4:networkDefault") && ipItem.getFirstChild().getNodeValue() != null ) {
+	 		                else if( ipItem.getNodeName().equals(sNS + "networkDefault") && ipItem.getFirstChild().getNodeValue() != null ) {
 	 		                	//TODO
 	 		                }
-	 		                else if( ipItem.getNodeName().equals("ns4:serverToVipConnectivity") && ipItem.getFirstChild().getNodeValue() != null ) {
+	 		                else if( ipItem.getNodeName().equals(sNS + "serverToVipConnectivity") && ipItem.getFirstChild().getNodeValue() != null ) {
 	 		                	//TODO
 	 		                }
 	 		                if(baseIp != null && mask != -1){
@@ -449,6 +474,11 @@ public class Network implements VLANSupport {
         }
   
         String regionId = null;
+       String sNS = "";
+       try{
+           sNS = node.getNodeName().substring(0, node.getNodeName().indexOf(":") + 1);
+       }
+       catch(IndexOutOfBoundsException ex){}
         
         NodeList attributes = node.getChildNodes();
                 
@@ -464,21 +494,21 @@ public class Network implements VLANSupport {
             else {
                 continue;
             }
-            if( name.equalsIgnoreCase("ns4:id") ) {
+            if( name.equalsIgnoreCase(sNS + "id") ) {
             	if(vlanId != null){
             		continue;
             	}            	
             }            
-            else if( name.equalsIgnoreCase("ns4:location")  ) {
+            else if( name.equalsIgnoreCase(sNS + "location")  ) {
                 regionId = value;
             }          
-            else if( name.equalsIgnoreCase("ns4:publicIps") ) {
+            else if( name.equalsIgnoreCase(sNS + "publicIps") ) {
          		NodeList publicIpAttributes  = attribute.getChildNodes();
            		for(int j=0;j<publicIpAttributes.getLength();j++ ){
 	           		Node publicIpAttribute = publicIpAttributes.item(j);
 	           		if(publicIpAttribute.getNodeType() == Node.TEXT_NODE) continue;
 	 	           
-	           		if( publicIpAttribute.getNodeName().equals("ns4:IpBlock") ){
+	           		if( publicIpAttribute.getNodeName().equals(sNS + "IpBlock") ){
 	 	            	Subnet  subnet = new Subnet();
 	 	            	HashMap<String,String> tags = new HashMap<String, String>();
 	 	            	subnet.setTags(tags);
@@ -491,14 +521,14 @@ public class Network implements VLANSupport {
 	 		            	Node ipItem = ipItems.item(k);
 	 		            	if(ipItem.getNodeType() == Node.TEXT_NODE) continue;
 	 		            	
-	 		            	if( ipItem.getNodeName().equals("ns4:id") && ipItem.getFirstChild().getNodeValue() != null ) {
+	 		            	if( ipItem.getNodeName().equals(sNS + "id") && ipItem.getFirstChild().getNodeValue() != null ) {
 	 		                	subnet.setProviderSubnetId(ipItem.getFirstChild().getNodeValue());
 	 		                }
-	 		                else if( ipItem.getNodeName().equals("ns4:baseIp") && ipItem.getFirstChild().getNodeValue() != null ) {
+	 		                else if( ipItem.getNodeName().equals(sNS + "baseIp") && ipItem.getFirstChild().getNodeValue() != null ) {
 	 		                	baseIp = ipItem.getFirstChild().getNodeValue();
-	 		                	subnet.getTags().put("ns4:baseIp", baseIp);
+	 		                	subnet.getTags().put("baseIp", baseIp);
 	 		                }
-	 		                else if( ipItem.getNodeName().equals("ns4:subnetSize") && ipItem.getFirstChild().getNodeValue() != null ) {
+	 		                else if( ipItem.getNodeName().equals(sNS + "subnetSize") && ipItem.getFirstChild().getNodeValue() != null ) {
 	 		                	String itemValue = ipItem.getFirstChild().getNodeValue();
 	 		                	if(isNumeric(itemValue)){
 	 		                		size = Integer.valueOf(itemValue);
@@ -507,10 +537,10 @@ public class Network implements VLANSupport {
 	 		                		mask =  32 - (int) Math.log(size) - 1;
 	 		                	} 		                	
 	 		                }
-	 		                else if( ipItem.getNodeName().equals("ns4:networkDefault") && ipItem.getFirstChild().getNodeValue() != null ) {
-	 		                	subnet.getTags().put("ns4:networkDefault", ipItem.getFirstChild().getNodeValue());
+	 		                else if( ipItem.getNodeName().equals(sNS + "networkDefault") && ipItem.getFirstChild().getNodeValue() != null ) {
+	 		                	subnet.getTags().put("networkDefault", ipItem.getFirstChild().getNodeValue());
 	 		                }
-	 		                else if( ipItem.getNodeName().equals("ns4:serverToVipConnectivity") && ipItem.getFirstChild().getNodeValue() != null ) {
+	 		                else if( ipItem.getNodeName().equals(sNS + "serverToVipConnectivity") && ipItem.getFirstChild().getNodeValue() != null ) {
 	 		                	//TODO
 	 		                }	 		               	                        		     		 
 	 		            }
@@ -575,7 +605,7 @@ public class Network implements VLANSupport {
        			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "GET", null));
          	
         //Result would be something like: Public IP block with base IP 207.20.37.208 is reserved
-       	String result = method.requestResult("Creating subnet", method.invoke(), "ns9:result", "ns9:resultDetail");
+       	String result = method.requestResult("Creating subnet", method.invoke(), "result", "resultDetail");
        	
        	return getSubnetResponseInfo(result);       	
     }
@@ -625,7 +655,7 @@ public class Network implements VLANSupport {
         	if(list == null)
         		continue;
         	for(Subnet subnet : list){
-        		if(continaBaseIpInfo.contains(subnet.getTags().get("ns4:baseIp"))){
+        		if(continaBaseIpInfo.contains(subnet.getTags().get("baseIp"))){
         			return subnet;        			
         		}        		
         	}
@@ -662,8 +692,13 @@ public class Network implements VLANSupport {
     			provider.buildUrl(null,true, parameters),
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "GET",null));
       	Document doc = method.invoke();
-      	
-        NodeList matches = doc.getElementsByTagName("ns4:NetworkConfigurationWithLocation");
+
+        String sNS = "";
+        try{
+            sNS = doc.getDocumentElement().getTagName().substring(0, doc.getDocumentElement().getTagName().indexOf(":") + 1);
+        }
+        catch(IndexOutOfBoundsException ex){}
+        NodeList matches = doc.getElementsByTagName(sNS + "NetworkConfigurationWithLocation");
         if(matches != null){
             for( int i=0; i<matches.getLength(); i++ ) {
                 Node node = matches.item(i);            
@@ -712,12 +747,12 @@ public class Network implements VLANSupport {
     			provider.buildUrl("release",true, parameters),
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "GET", null));
     	
-    	method.parseRequestResult("Removing subnet",method.invoke(), "ns9:result", "ns9:resultDetail");
+    	method.parseRequestResult("Removing subnet",method.invoke(), "result", "resultDetail");
     }
 
     @Override
     public boolean supportsVlansWithSubnets() throws CloudException, InternalException {
-        return true;
+        return false;
     }
     
     private String toCidr(String gateway, String netmask) {

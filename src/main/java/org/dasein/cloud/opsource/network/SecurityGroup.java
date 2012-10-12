@@ -18,6 +18,7 @@
 
 package org.dasein.cloud.opsource.network;
 
+import java.io.StringWriter;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
@@ -44,6 +45,12 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
 import javax.annotation.Nonnull;
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerException;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
 
 /**
  * There is no concept of firewall group in OpSource,
@@ -138,7 +145,6 @@ public class SecurityGroup implements FirewallSupport {
         portRange.appendChild(type);
         portRange.appendChild(port);       
         
-        doc.appendChild(aclRule);
         aclRule.appendChild(nameElmt);
         aclRule.appendChild(positionElmt);
         aclRule.appendChild(actionElmt);
@@ -147,18 +153,24 @@ public class SecurityGroup implements FirewallSupport {
         aclRule.appendChild(sourceIpRange);
         aclRule.appendChild(destinationIpRange);
         aclRule.appendChild(portRange);
-        
+        doc.appendChild(aclRule);
+
         OpSourceMethod method = new OpSourceMethod(provider, 
     			provider.buildUrl(null,true, parameters),
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "POST", provider.convertDomToString(doc)));
     	Document responseDoc = method.invoke();
     
     	Node item = responseDoc.getDocumentElement();
+        String sNS = "";
+        try{
+            sNS = item.getNodeName().substring(0, item.getNodeName().indexOf(":") + 1);
+        }
+        catch(IndexOutOfBoundsException ex){}
     	NodeList matches = item.getChildNodes();
         if(matches != null){
             for( int i=0; i<matches.getLength(); i++ ) {
                 Node node = matches.item(i);
-                if(node.getNodeName().equals("ns4:id") && node.getFirstChild().getNodeValue() != null ){
+                if(node.getNodeName().equals(sNS + "id") && node.getFirstChild().getNodeValue() != null ){
                 	return node.getFirstChild().getNodeValue();               	
                 }
               
@@ -275,7 +287,12 @@ public class SecurityGroup implements FirewallSupport {
       	Document doc = method.invoke();
      
       	Node item = doc.getDocumentElement();
-      	if(item.getNodeName().equals("ns4:Network")){
+        String sNS = "";
+        try{
+            sNS = item.getNodeName().substring(0, item.getNodeName().indexOf(":") + 1);
+        }
+        catch(IndexOutOfBoundsException ex){}
+      	if(item.getNodeName().equals(sNS + "Network")){
       		return toFirewall(item);   		
       	}
       	return null;        
@@ -339,13 +356,19 @@ public class SecurityGroup implements FirewallSupport {
       	
       	param = new Param("aclrule", null);
       	parameters.put(2, param);
-    	
+
     	OpSourceMethod method = new OpSourceMethod(provider, 
     			provider.buildUrl(null,true, parameters),
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "GET",null));
       	Document doc = method.invoke();
-      
-        NodeList matches = doc.getElementsByTagName("ns4:AclRule");
+
+        String sNS = "";
+        try{
+            sNS = doc.getDocumentElement().getTagName().substring(0, doc.getDocumentElement().getTagName().indexOf(":") + 1);
+        }
+        catch(IndexOutOfBoundsException ex){}
+
+        NodeList matches = doc.getElementsByTagName(sNS + "AclRule");
         if(matches != null){
             for( int i=0; i<matches.getLength(); i++ ) {
                 Node node = matches.item(i);            
@@ -377,8 +400,30 @@ public class SecurityGroup implements FirewallSupport {
     			provider.buildUrl(null,true, parameters),
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "GET",null));
       	Document doc = method.invoke();
-      	
-        NodeList matches = doc.getElementsByTagName("ns4:network");
+
+        String sNS = "";
+        try{
+            sNS = doc.getDocumentElement().getTagName().substring(0, doc.getDocumentElement().getTagName().indexOf(":") + 1);
+
+            try{
+                TransformerFactory transfac = TransformerFactory.newInstance();
+                Transformer trans = transfac.newTransformer();
+                trans.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "yes");
+                trans.setOutputProperty(OutputKeys.INDENT, "yes");
+
+                StringWriter sw = new StringWriter();
+                StreamResult result = new StreamResult(sw);
+                DOMSource source = new DOMSource(doc);
+                trans.transform(source, result);
+                String xmlString = sw.toString();
+            }
+            catch(Exception ex){
+                ex.printStackTrace();
+                logger.debug(ex.toString(), ex);
+            }
+        }
+        catch(IndexOutOfBoundsException ex){}
+        NodeList matches = doc.getElementsByTagName(sNS + "network");
         if(matches != null){
             for( int i=0; i<matches.getLength(); i++ ) {
                 Node node = matches.item(i);            
@@ -447,14 +492,19 @@ public class SecurityGroup implements FirewallSupport {
     	OpSourceMethod method = new OpSourceMethod(provider, 
     			provider.buildUrl("delete",true, parameters),
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "GET", null));
-    	method.parseRequestResult("Revoking firewall rule",method.invoke(), "ns9:result", "ns9:resultDetail");
+    	method.parseRequestResult("Revoking firewall rule",method.invoke(), "result", "resultDetail");
     }
 
     private Firewall toFirewall(Node node) {
         if( node == null ) {
             return null;
         }
-        
+        String sNS = "";
+        try{
+            sNS = node.getNodeName().substring(0, node.getNodeName().indexOf(":") + 1);
+        }
+        catch(IndexOutOfBoundsException ex){}
+
         NodeList attributes = node.getChildNodes();
         Firewall firewall = new Firewall();
         
@@ -472,18 +522,18 @@ public class SecurityGroup implements FirewallSupport {
             else {
                 value = null;
             }
-            if( name.equalsIgnoreCase("ns4:id") ) {
+            if( name.equalsIgnoreCase(sNS + "id") ) {
             	firewall.setProviderFirewallId(value);
             	/** The firewall Id is the same as vlan Id */
             	firewall.setProviderVlanId(value);
             }
-            else if( name.equalsIgnoreCase("ns4:name") ) {
+            else if( name.equalsIgnoreCase(sNS + "name") ) {
             	firewall.setName("enstratus security group for VLan " + value);
             }
-            else if( name.equalsIgnoreCase("ns4:description") ) {
+            else if( name.equalsIgnoreCase(sNS + "description") ) {
             	firewall.setDescription("enstratus security group for VLan "+ value);
             }
-            else if( name.equalsIgnoreCase("ns4:location") && value != null ) {
+            else if( name.equalsIgnoreCase(sNS + "location") && value != null ) {
             	firewall.setRegionId(value);
             }
            
@@ -504,7 +554,13 @@ public class SecurityGroup implements FirewallSupport {
     private FirewallRule toRule(String firewallId, Node node) {
         if( node == null) {
             return null;
-        }        
+        }
+
+        String sNS = "";
+        try{
+            sNS = node.getNodeName().substring(0, node.getNodeName().indexOf(":") + 1);
+        }
+        catch(IndexOutOfBoundsException ex){}
         NodeList attributes = node.getChildNodes();
         FirewallRule rule = new FirewallRule();
         
@@ -525,21 +581,22 @@ public class SecurityGroup implements FirewallSupport {
             else {
                 value = null;
             }
-            if( name.equalsIgnoreCase("cidr") ) {
+
+            if( name.equalsIgnoreCase(sNS + "cidr") ) {
                 rule.setCidr(value);
             }           
-            else if( name.equalsIgnoreCase("ns4:id") ) {
+            else if( name.equalsIgnoreCase(sNS + "id") ) {
             	basicRuleId = value;
             	
             	//rule.setProviderRuleId(value);
             }
-            else if( name.equalsIgnoreCase("ns4:name") ) {
+            else if( name.equalsIgnoreCase(sNS + "name") ) {
                 //
             }
-            else if( name.equalsIgnoreCase("ns4:position") ) {
+            else if( name.equalsIgnoreCase(sNS + "position") ) {
                positionId = value;
             }
-            else if( name.equalsIgnoreCase("ns4:action") ) {
+            else if( name.equalsIgnoreCase(sNS + "action") ) {
             	
             	if(value.equalsIgnoreCase("deny")){
             		rule.setPermission(Permission.DENY);
@@ -547,7 +604,7 @@ public class SecurityGroup implements FirewallSupport {
             		rule.setPermission(Permission.ALLOW);
             	}                      	
             }
-            else if( name.equalsIgnoreCase("ns4:protocol") ) {
+            else if( name.equalsIgnoreCase(sNS + "protocol") ) {
             	
             	if(value.equalsIgnoreCase("TCP")){
             		rule.setProtocol(Protocol.TCP);
@@ -555,10 +612,14 @@ public class SecurityGroup implements FirewallSupport {
             		rule.setProtocol(Protocol.UDP);
             	}else if (value.equalsIgnoreCase("ICMP") ){
             		rule.setProtocol(Protocol.ICMP);
-            	}       	
+            	}
+                else{
+                    //OpSource has a rule with an odd protocol by default that we don't want to add or display
+                    return null;
+                }
             	
             }
-            else if( name.equalsIgnoreCase("ns4:sourceIpRange") ) {
+            else if( name.equalsIgnoreCase(sNS + "sourceIpRange") ) {
          		String ipAddress = null;
         		String networkMask = null;
             	NodeList ipAddresses = attribute.getChildNodes();
@@ -566,9 +627,9 @@ public class SecurityGroup implements FirewallSupport {
             		Node ip = ipAddresses.item(j);
             		if(ip.getNodeType() == Node.TEXT_NODE) continue;
    
-            		if(ip.getNodeName().equals("ns4:ipAddress") && ip.getFirstChild().getNodeValue() != null){
+            		if(ip.getNodeName().equals(sNS + "ipAddress") && ip.getFirstChild().getNodeValue() != null){
             			ipAddress = ip.getFirstChild().getNodeValue();
-            		}else if(ip.getNodeName().equals("ns4:netmask") && ip.getFirstChild().getNodeValue() != null){
+            		}else if(ip.getNodeName().equals(sNS + "netmask") && ip.getFirstChild().getNodeValue() != null){
             			networkMask = ip.getFirstChild().getNodeValue();
             		}
             	}
@@ -582,29 +643,29 @@ public class SecurityGroup implements FirewallSupport {
             	}
             	  
             }
-            else if( name.equalsIgnoreCase("ns4:destinationIpRange") ) {
+            else if( name.equalsIgnoreCase(sNS + "destinationIpRange") ) {
             	//TODO    
             }
-            else if( name.equalsIgnoreCase("ns4:portRange") ) {
+            else if( name.equalsIgnoreCase(sNS + "portRange") ) {
             	NodeList portAttributes  = attribute.getChildNodes();
             	String portType = null;
            		for(int j=0;j<portAttributes.getLength();j++ ){
 	           		Node portItem = portAttributes.item(j);
-	           		if( portItem.getNodeName().equalsIgnoreCase("ns4:type") && portItem.getFirstChild().getNodeValue() != null ) {
+	           		if( portItem.getNodeName().equalsIgnoreCase(sNS + "type") && portItem.getFirstChild().getNodeValue() != null ) {
 	           			portType = portItem.getFirstChild().getNodeValue();	           			
 	                }
-	                else if( portItem.getNodeName().equalsIgnoreCase("ns4:port1") && portItem.getFirstChild().getNodeValue() != null ) {
+	                else if( portItem.getNodeName().equalsIgnoreCase(sNS + "port1") && portItem.getFirstChild().getNodeValue() != null ) {
 	                	rule.setStartPort(Integer.valueOf(portItem.getFirstChild().getNodeValue()));
 	                	if(portType.equalsIgnoreCase("EQUAL_TO")){
 	                    	rule.setEndPort(Integer.valueOf(portItem.getFirstChild().getNodeValue()));
 	                    }
 	                }
-	                else if( portItem.getNodeName().equalsIgnoreCase("ns4:port2") && portItem.getFirstChild().getNodeValue() != null ) {
+	                else if( portItem.getNodeName().equalsIgnoreCase(sNS + "port2") && portItem.getFirstChild().getNodeValue() != null ) {
 	                	rule.setEndPort(Integer.valueOf(portItem.getFirstChild().getNodeValue()));
 	                }	                                     
            		}              	      
             }
-            else if( name.equalsIgnoreCase("ns4:type") ) {
+            else if( name.equalsIgnoreCase("type") ) {
             	if(value != null){
             		if(value.equalsIgnoreCase("INSIDE_ACL")){
             			rule.setDirection(Direction.EGRESS);
@@ -623,7 +684,12 @@ public class SecurityGroup implements FirewallSupport {
         }
         if(rule.getCidr() == null){        	
         	rule.setCidr("0.0.0.0/0");
-        }        
+        }
+
+        if(rule.getProtocol() == null){
+            //OpSource has a rule with an odd protocol by default that we don't want to add or display
+            return null;
+        }
         return rule;
     }
 }
