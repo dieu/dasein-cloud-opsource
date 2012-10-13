@@ -176,14 +176,30 @@ public class Network implements VLANSupport {
     	OpSourceMethod method = new OpSourceMethod(provider, 
     			provider.buildUrl(null,true, parameters),
     			provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "POST", provider.convertDomToString(doc)));
-      	
-    	String vlanId = method.getRequestResultId("Creating VLan",method.invoke(), "result", "resultDetail");
-      	if(vlanId != null){      	
-      		return this.getVlan(vlanId);      		
-      	}else{
-      		throw new CloudException("Creating VLan fails without explaination !!!");
-      	}
-      	
+
+        //TODO dasein fix
+//    	String vlanId = method.getRequestResultId("Creating VLan",method.invoke(), "result", "resultDetail");
+        boolean isCreate = method.parseRequestResult("Creating VLan", method.invoke(), "result", "resultDetail");
+
+        if (!isCreate) {
+            throw new CloudException("Creating VLan fails without explaination !!!");
+        }
+
+        for (int i = 0; i < 2; i++) {
+            Iterable<VLAN> lists = listVlans();
+            for (VLAN vLan : lists) {
+                if (vLan.getName().equals(name)) {
+                    return vLan;
+                }
+            }
+            try {
+                Thread.sleep(30000l);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+
+        throw new CloudException("Creating VLan fails without explaination !!!");
     }
 
     @Override
@@ -203,7 +219,7 @@ public class Network implements VLANSupport {
         
     }
 
-    public VLAN toVLAN(Node node) {
+    public VLAN toVLAN(Node node) throws CloudException, InternalException {
         if( node == null ) {
             return null;
         }
@@ -245,7 +261,9 @@ public class Network implements VLANSupport {
             }
             else if( name.equalsIgnoreCase(sNS + "location") && value != null ) {
                 network.setProviderRegionId(value);
-                if(! value.equals(provider.getContext().getRegionId())){
+                String regionId = provider.getContext().getRegionId();
+                if((regionId != null && !value.equals(regionId))
+                        || (regionId == null && !value.equals(provider.getDefaultRegionId()))){
                 	return null;                	
                 }
             }

@@ -249,8 +249,12 @@ public class OpSource extends AbstractCloud {
         synchronized (lock) {
             if (defaultVlanId != null) {
                 try {
-                    getNetworkServices().getVlanSupport().getVlan(defaultVlanId);
-                    return defaultVlanId;
+                    VLAN vlan = getNetworkServices().getVlanSupport().getVlan(defaultVlanId);
+                    if (vlan != null) {
+                        return defaultVlanId;
+                    } else {
+                        defaultVlanId = null;
+                    }
                 } catch (Exception ignored) {
                     defaultVlanId = null;
                 }
