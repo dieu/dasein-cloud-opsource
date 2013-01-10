@@ -19,15 +19,10 @@
 package org.dasein.cloud.opsource.compute;
 
 
-import java.io.StringWriter;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
+import java.util.*;
 
 
 import javax.annotation.Nonnull;
@@ -48,9 +43,13 @@ import org.dasein.cloud.compute.VmStatistics;
 
 import org.dasein.cloud.dc.Region;
 import org.dasein.cloud.identity.ServiceAction;
+import org.dasein.cloud.network.*;
 import org.dasein.cloud.opsource.OpSource;
 import org.dasein.cloud.opsource.OpSourceMethod;
 import org.dasein.cloud.opsource.Param;
+import org.dasein.cloud.opsource.network.IpAddressImplement;
+import org.dasein.cloud.opsource.network.OpSourceNetworkServices;
+import org.dasein.cloud.opsource.network.SecurityGroup;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -62,7 +61,7 @@ public class VirtualMachines implements VirtualMachineSupport {
 	static private final String CLEAN_VIRTUAL_MACHINE = "clean";
 	static private final String REBOOT_VIRTUAL_MACHINE  = "reboot";
 	static private final String START_VIRTUAL_MACHINE   = "start";
-	static private final String PAUSE_VIRTUAL_MACHINE 	= "shutdown";
+	static private final String SHUTDOWN_VIRTUAL_MACHINE = "shutdown";
 	/** Node tag name */
 	static private final String Deployed_Server_Tag = "Server";
 	static private final String Pending_Deployed_Server_Tag = "PendingDeployServer";
@@ -290,6 +289,7 @@ public class VirtualMachines implements VirtualMachineSupport {
 			if( targetDisk == 0 && currentCPU == targetCPU && currentMemory == targetMemory ){
 				boolean isDeployed = this.deploy(origImage.getProviderMachineImageId(), inZoneId, name, description, withVlanId, null, "true");
 				if(isDeployed){
+                    waitServerIsRunning(name, asSandbox);
 					return getVirtualMachineByName(name);
 				}else{
 					throw new CloudException("Fail to launch the server");
@@ -302,6 +302,7 @@ public class VirtualMachines implements VirtualMachineSupport {
 					boolean isDeployed = this.deploy(targetTmage.getProviderMachineImageId(), inZoneId, name, description, withVlanId, null, "true");
 
 					if(isDeployed){
+                        waitServerIsRunning(name, asSandbox);
 						return getVirtualMachineByName(name);
 					}else{
 						throw new CloudException("Fail to launch the server");
@@ -423,56 +424,147 @@ public class VirtualMachines implements VirtualMachineSupport {
 				}
 			}
 
-			/**  Fourth Step: boot the server */
-			/** Update usually take another 10 mins, wait 5 minutes first */
-			starttime = System.currentTimeMillis();
-			int localAttemptToBootVM = attemptForOperation;
+			waitServerIsRunning(name, asSandbox);
 
-			while (localAttemptToBootVM >0){
-				try {
-					/** Begin to start the VM */
-					server = getVirtualMachineByName(name);
-					if(server == null){
-						throw new CloudException("Server failed to launch while booting !!!");
-			    	}
-
-					if(server.getCurrentState().equals(VmState.RUNNING)){
-			    		/** Already started	*/
-						return server;
-			    	}
-					/** Start VM*/
-					start(server.getProviderVirtualMachineId());
-
-                    if(!server.getCurrentState().equals(VmState.RUNNING)){
-                        throw new CloudException("Virtual machine is not running");
-                    }
-
-    				if(logger.isTraceEnabled()){
-    		   			long end = System.currentTimeMillis();
-    		   			logger.info("Total boot time -> " + ((end-starttime)/1000));
-    				}
-    				return server;
-				} catch (InternalException e) {
-
-				} catch (CloudException e) {
-					try{
-
-						Thread.sleep(waitTimeToAttempt);
-
-						localAttemptToBootVM--;
-
-					}catch (InterruptedException e1) {
-						logger.warn("InterruptedException while trying to wait 30s to update the server with Id ");
-					}
-				}
-			}
-			return null;
+            return getVirtualMachineByName(name);
 		}finally{
 			if( logger.isTraceEnabled() ) {
 				logger.trace("EXIT: " + VirtualMachine.class.getName() + ".launch()");
 			}
 		}
 	}
+
+    private VirtualMachine waitServerIsRunning(String name, Boolean asSandbox) {
+        /**  Fourth Step: boot the server */
+        /** Update usually take another 10 mins, wait 5 minutes first */
+        long starttime = System.currentTimeMillis();
+        int localAttemptToBootVM = attemptForOperation;
+
+        while (localAttemptToBootVM >0){
+            try {
+                /** Begin to start the VM */
+                VirtualMachine server = getVirtualMachineByName(name);
+                if(server == null){
+                    throw new CloudException("Server failed to launch while booting !!!");
+                }
+
+                if(server.getCurrentState().equals(VmState.RUNNING)){
+                    /** Already started	*/
+
+                    try {
+                        if (!asSandbox) {
+                            asPublicServer(name);
+                        }
+                    } catch (Exception e) {
+                        throw new IllegalStateException(e);
+                    }
+
+                    return server;
+                }
+                /** Start VM*/
+                start(server.getProviderVirtualMachineId());
+
+                if(!server.getCurrentState().equals(VmState.RUNNING)){
+                    throw new CloudException("Virtual machine is not running");
+                }
+
+                if(logger.isTraceEnabled()){
+                    long end = System.currentTimeMillis();
+                    logger.info("Total boot time -> " + ((end-starttime)/1000));
+                }
+
+                localAttemptToBootVM = 0;
+            } catch (InternalException e) {
+
+            } catch (CloudException e) {
+                try{
+
+                    Thread.sleep(waitTimeToAttempt);
+
+                    localAttemptToBootVM--;
+
+                }catch (InterruptedException e1) {
+                    logger.warn("InterruptedException while trying to wait 30s to update the server with Id ");
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private void asPublicServer(String name) throws CloudException {
+        long starttime = System.currentTimeMillis();
+        int localAttemptToAssineIpAddress = attemptForOperation;
+        OpSourceNetworkServices networkServices = provider.getNetworkServices();
+        IpAddressImplement ipAddressSupport = networkServices.getIpAddressSupport();
+        SecurityGroup firewallSupport = networkServices.getFirewallSupport();
+
+        while (localAttemptToAssineIpAddress >0){
+            try {
+                //Begin to attach the VM
+                if(logger.isTraceEnabled()){
+                    logger.trace("Begin to assign ip address to the server " + localAttemptToAssineIpAddress);
+                }
+                VirtualMachine server = getVirtualMachineByName(name);
+                if(server == null){
+                    throw new CloudException("Server failed to launch while attaching disk !!!");
+                }
+
+                synchronized (VirtualMachines.class) {
+                    if (server.getPublicIpAddresses() == null || server.getPublicIpAddresses().length < 1) {
+                        IpAddress ip = getIpAddress(server);
+                        ipAddressSupport.assign(ip.getProviderIpAddressId(), server.getProviderVirtualMachineId());
+
+                        firewallSupport.authorize(
+                                server.getProviderVlanId(),
+                                SecurityGroup.ANY,
+                                ip.getAddress(),
+                                Protocol.TCP,
+                                new SecurityGroup.PortRule(SecurityGroup.PortRule.PortType.EQUAL_TO, 22)
+                        );
+                    }
+                }
+
+                localAttemptToAssineIpAddress = 0;
+
+                if(logger.isTraceEnabled()){
+                    long end = System.currentTimeMillis();
+                    logger.info("Total assign ip address time -> " + ((end-starttime)/1000));
+                }
+
+                return;
+            } catch (InternalException e) {
+                /** throwable */
+            } catch (CloudException e) {
+                try{
+                    Thread.sleep(waitTimeToAttempt);
+                    localAttemptToAssineIpAddress--;
+
+                }catch (InterruptedException e1) {
+                    logger.info("InterruptedException while trying to wait 30s to attaching disk to the server ");
+                }
+            }
+        }
+
+        throw new CloudException("Don't assign ip address to server: " + name);
+    }
+
+    private IpAddress getIpAddress(VirtualMachine server) throws CloudException, InternalException {
+        OpSourceNetworkServices networkServices = provider.getNetworkServices();
+        IpAddressImplement ipAddressSupport = networkServices.getIpAddressSupport();
+
+        Iterator<IpAddress> publicIps = ipAddressSupport.listPublicIpPool(true, server.getProviderVlanId()).iterator();
+
+        if (!publicIps.hasNext()) {
+            Subnet subnet = networkServices.getVlanSupport().createSubnet(null, server.getProviderVlanId(), null, null);
+
+            if (!subnet.getCurrentState().equals(SubnetState.AVAILABLE))
+                throw new IllegalStateException("Subnet don't available" + subnet.getName());
+
+            publicIps = ipAddressSupport.listPublicIpPool(true, server.getProviderVlanId()).iterator();
+        }
+        return publicIps.next();
+    }
 
 	/**
 	 *
@@ -746,7 +838,7 @@ public class VirtualMachines implements VirtualMachineSupport {
 
 		/** Gracefully power off */
 		OpSourceMethod method = new OpSourceMethod(provider,
-				provider.buildUrl(PAUSE_VIRTUAL_MACHINE,true, parameters),
+				provider.buildUrl(SHUTDOWN_VIRTUAL_MACHINE,true, parameters),
 				provider.getBasicRequestParameters(OpSource.Content_Type_Value_Single_Para, "GET",null));
 		method.parseRequestResult("Pauseing vm",method.invoke(),"result","resultDetail");
 	}
@@ -834,6 +926,11 @@ public class VirtualMachines implements VirtualMachineSupport {
 						localAttemptToTerminateVM = attemptForOperation;
 					}
 					else{
+                        for (String ip : server.getPublicIpAddresses()) {
+                            provider.getNetworkServices().getIpAddressSupport().releaseFromServer(ip);
+                            provider.getNetworkServices().getFirewallSupport().revoke(server.getProviderVlanId(), ip, Protocol.TCP, 22);
+                        }
+
 						logger.info("Begin to kill -> " + localAttemptToTerminateVM);
 						String  resultCode = killVM(serverId);
 						if(resultCode.equals("REASON_0")){
@@ -1124,11 +1221,11 @@ public class VirtualMachines implements VirtualMachineSupport {
 						server.setCurrentState(VmState.PENDING);
 					}
 					else if( status.getNodeName().equalsIgnoreCase(nameSpaceString + "requestTime") && status.getFirstChild().getNodeValue() != null ) {
-						DateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ"); //2009-02-03T05:26:32.612278
+						DateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'"); //2009-02-03T05:26:32.612278
 
 						try {
-							if(value.contains(".")){
-								String newvalue = value.substring(0,status.getFirstChild().getNodeValue().indexOf("."))+"Z";
+							if(status.getFirstChild().getNodeValue().contains(".")){
+								String newvalue = status.getFirstChild().getNodeValue().substring(0,status.getFirstChild().getNodeValue().indexOf("."))+"Z";
 								server.setCreationTimestamp(df.parse(newvalue).getTime());                		
 							}else{
 								server.setCreationTimestamp(df.parse(status.getFirstChild().getNodeValue()).getTime());                		
@@ -1192,19 +1289,30 @@ public class VirtualMachines implements VirtualMachineSupport {
 		}
 
 		/**  Set public address */
-		/**        String[] privateIps = server.getPrivateIpAddresses();
+		String[] privateIps = server.getPrivateIpAddresses();
+        IpAddressImplement ipAddressSupport = provider.getNetworkServices().getIpAddressSupport();
+        Collection<IpAddressImplement.NatRule> rules = null;
 
-        if(privateIps != null){
-            IpAddressImplement ipAddressSupport = new IpAddressImplement(provider);
-            String[] publicIps = new String[privateIps.length];
+
+        try {
+            rules = ipAddressSupport.listNatRule(server.getProviderVlanId());
+        } catch (CloudException e) {
+
+        } catch (InternalException e) {
+
+        }
+
+        if(privateIps != null && rules != null){
+            List<String> publicIps = new ArrayList<String>();
             for(int i= 0; i< privateIps.length; i++){
-            	NatRule rule = ipAddressSupport.getNatRule(privateIps[i], server.getProviderVlanId());
-            	if(rule != null){
-            		publicIps[i] = rule.getNatIp();
-            	}               
+            	for (IpAddressImplement.NatRule rule : rules) {
+                    if(rule != null && rule.getSourceIp().equals(privateIps[i])) {
+                        publicIps.add(rule.getNatIp());
+                    }
+                }
             }
-            server.setPublicIpAddresses(publicIps);
-        }*/
+            server.setPublicIpAddresses(publicIps.toArray(new String[publicIps.size()]));
+        }
 
         // TODO dasein fix root user
         if (server.getPlatform() == Platform.UBUNTU) {
